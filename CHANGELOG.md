@@ -24,6 +24,14 @@ O versionamento deste repositório começa em `0.1.0`, independentemente da nume
 - Controles com identificadores duplicados ou instáveis são ignorados, em vez de tentar inferir pela posição.
 - A retomada sem identificadores estáveis é conservadora para não repetir cliques em cupons já tentados.
 
+### Corrigido após validação real (HTTP 403)
+
+- Interrupção imediata quando a ativação recebe **HTTP 401, 403 ou 429**, se o navegador disponibiliza o status da resposta.
+- Detecção de aviso **“Tivemos um problema”** e mensagens semelhantes na interface, interrompendo sem exigir leitura da resposta HTTP.
+- Proteções adicionais contra sequências de falhas HTTP e ativações inconclusivas.
+- Correção da contagem de falhas para evitar duplicações.
+- Testes de regressão simulados para HTTP 403, HTTP 429, HTTP 500, aviso de erro e tentativas inconclusivas.
+
 ### Validação pendente
 
 - Teste real autenticado no Mercado Livre (dependente da sessão do usuário).
