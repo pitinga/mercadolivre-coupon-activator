@@ -582,8 +582,9 @@
   function paginaConfirmada(doc, esperada) {
     const url = paginaDaUrl(doc);
     const atual = numeroPagina(doc);
-    if (url !== null && url !== esperada) return false;
+    // Em páginas SPA, a URL pode estar defasada; o indicador ativo tem prioridade.
     if (atual !== null) return atual === esperada;
+    if (url !== null && url !== esperada) return false;
     if (esperada === 1) return url === null || url === 1;
     if (url !== esperada) return false;
 
@@ -861,6 +862,7 @@
     }
     for (const item of itens) {
       if (item.chave && contagem.get(item.chave) !== 1) {
+        item.ambiguo = true;
         item.chave = null;
       }
     }
@@ -879,6 +881,11 @@
     for (let i = 0; i < itens.length; i++) {
       if (!(await aguardarExecucao())) return false;
       const item = itens[i];
+      if (item.ambiguo) {
+        estado.ignorados++;
+        mostrar(`Item ${i + 1}/${itens.length}: identificador duplicado; ignorado.`);
+        continue;
+      }
 
       if ((item.chave && jaTentados.has(item.chave)) ||
           (!item.chave && preservarSemId)) {
