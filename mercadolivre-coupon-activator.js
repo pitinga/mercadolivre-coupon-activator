@@ -1035,23 +1035,22 @@
           );
         }
       } catch (erro) {
-        if (!erro.contabilizado && erro.respostaHttp !== null &&
-            erro.respostaHttp !== undefined && erro.respostaHttp >= 400) {
-          estado.recusados++;
+        // Um limite de falhas HTTP já contabilizadas não é uma nova falha.
+        const limiteJaContabilizado =
+          erro.interromper && erro.respostaHttp === null &&
+          estado.falhasHttpConsecutivas >= CONFIG.maxFalhasHttpConsecutivas;
+        if (!erro.contabilizado && !limiteJaContabilizado) {
+          if (erro.respostaHttp >= 400) estado.recusados++;
+          estado.falhas++;
         }
-        if (!erro.contabilizado) {
-          // Não duplicar a contagem de falhas de respostas já contabilizadas.
-          if (!(erro.interromper && erro.respostaHttp === null &&
-                (estado.falhasHttpConsecutivas >= CONFIG.maxFalhasHttpConsecutivas))) {
-            estado.falhas++;
-          }
-          erro.contabilizado = true;
-        }
+        erro.contabilizado = true;
         console.warn(`[ML Cupons] Interrupção/falha no item ${i + 1}:`, erro);
         if (erro.interromper) throw erro;
-        throw erroInterrupcao(
+        const inesperado = erroInterrupcao(
           'Falha inesperada ao processar cupom: ' + erro.message
         );
+        inesperado.contabilizado = true;
+        throw inesperado;
       }
       if (!(await esperar(CONFIG.intervaloCliquesMs))) return false;
     }
