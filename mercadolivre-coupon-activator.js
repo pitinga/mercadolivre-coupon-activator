@@ -40,11 +40,52 @@
     return;
   }
 
+  const storageKey = 'ml-coupon-activator:progress:0.3.0';
+
+  function novoRegistro(pagina = 1) {
+    return {
+      versao: '0.3.0',
+      ultimaConcluida: pagina - 1,
+      paginaPendente: null,
+      idsTentados: [],
+      semIdTentado: false,
+      terminou: false,
+      atualizadoEm: new Date().toISOString()
+    };
+  }
+
+  function lerRegistro() {
+    try {
+      const valor = JSON.parse(localStorage.getItem(storageKey) || 'null');
+      if (!valor || valor.versao !== '0.3.0' ||
+          !Number.isSafeInteger(valor.ultimaConcluida) ||
+          valor.ultimaConcluida < 0 ||
+          ![null, undefined].includes(valor.paginaPendente) &&
+          (!Number.isSafeInteger(valor.paginaPendente) || valor.paginaPendente < 1)) {
+        return null;
+      }
+      valor.idsTentados = Array.isArray(valor.idsTentados)
+        ? valor.idsTentados.filter(v => typeof v === 'string').slice(0, CONFIG.maxCuponsPorPagina)
+        : [];
+      valor.semIdTentado = Boolean(valor.semIdTentado);
+      return valor;
+    } catch (erro) {
+      console.warn('[ML Cupons] Progresso local indisponível:', erro);
+      return null;
+    }
+  }
+
+  const anterior = lerRegistro();
+  const paginaSugerida = anterior && !anterior.terminou
+    ? anterior.paginaPendente || Math.min(CONFIG.maxPaginas, anterior.ultimaConcluida + 1)
+    : 1;
+
   const entrada = prompt(
     'Começar em qual página?\n\n' +
-    'As páginas anteriores serão percorridas sem ativar cupons.\n' +
-    'Pressione Enter para começar na página 1.',
-    '1'
+    'A página será aberta diretamente usando &page=X.\n' +
+    'A sugestão pode ser a página pendente da última execução.\n' +
+    'Informe 1 para reiniciar desde o começo.',
+    String(paginaSugerida)
   );
 
   if (entrada === null) return;
@@ -62,6 +103,52 @@
     return;
   }
 
+  const retomarPagina = Boolean(
+    anterior && !anterior.terminou &&
+    anterior.paginaPendente === paginaInicial &&
+    paginaInicial > anterior.ultimaConcluida
+  );
+  const progresso = retomarPagina
+    ? anterior : novoRegistro(paginaInicial);
+
+  function salvarProgresso() {
+    try {
+      progresso.atualizadoEm = new Date().toISOString();
+      localStorage.setItem(storageKey, JSON.stringify(progresso));
+      return true;
+    } catch (erro) {
+      console.warn('[ML Cupons] Não foi possível salvar o progresso:', erro);
+      return false;
+    }
+  }
+
+  function iniciarPagina() {
+    if (progresso.paginaPendente === estado.paginaAtual) return;
+    progresso.paginaPendente = estado.paginaAtual;
+    progresso.idsTentados = [];
+    progresso.semIdTentado = false;
+    progresso.terminou = false;
+    salvarProgresso();
+  }
+
+  function registrarTentativa(item) {
+    // Marcar ANTES do clique impede repetições caso a página seja recarregada.
+    if (item.chave && !progresso.idsTentados.includes(item.chave)) {
+      progresso.idsTentados.push(item.chave);
+    } else if (!item.chave) {
+      progresso.semIdTentado = true;
+    }
+    salvarProgresso();
+  }
+
+  function concluirPagina() {
+    progresso.ultimaConcluida = estado.paginaAtual;
+    progresso.paginaPendente = null;
+    progresso.idsTentados = [];
+    progresso.semIdTentado = false;
+    salvarProgresso();
+  }
+
   // Encerra uma instância anterior antes de iniciar outra.
   try {
     window.fecharCupons?.();
@@ -75,13 +162,18 @@
     pausado: false,
     pausaInicio: null,
     pausaAcumuladaMs: 0,
-    paginaAtual: 1,
+    paginaAtual: paginaInicial,
     paginasIniciadas: 0,
     paginasConcluidas: 0,
     cliques: 0,
+    confirmados: 0,
+    inconclusivos: 0,
+    ignorados: 0,
     falhas: 0,
     motivo: '',
-    ultimaMensagem: 'Iniciando...'
+    ultimaMensagem: retomarPagina
+      ? 'Retomada: cupons já tentados não serão acionados novamente.'
+      : 'Iniciando...'
   };
 
   const dormir = ms =>
@@ -158,6 +250,10 @@
   informacao.style.cssText = 'flex:1;min-width:220px;';
   informacao.textContent = 'Iniciando...';
 
+  const estatisticas = document.createElement('span');
+  estatisticas.style.cssText =
+    'font-weight:bold;min-width:260px;white-space:normal;';
+
   const botaoPausa = document.createElement('button');
   botaoPausa.textContent = 'Pausar';
 
@@ -188,7 +284,7 @@
     background:#fff;
   `;
 
-  painel.append(titulo, informacao, botaoPausa, botaoFechar);
+  painel.append(titulo, estatisticas, informacao, botaoPausa, botaoFechar);
   container.append(painel, frame);
 
   function atualizarPainel() {
@@ -200,9 +296,15 @@
         ? 'Pausado'
         : 'Executando';
 
+    const segundos = Math.floor(tempoAtivo() / 1000);
+    const duracao = `${String(Math.floor(segundos / 60)).padStart(2, '0')}:` +
+      String(segundos % 60).padStart(2, '0');
+    estatisticas.textContent =
+      `${estado.paginasConcluidas} pág. | ${estado.cliques} tent. | ` +
+      `${estado.confirmados} confirm. | ${estado.inconclusivos} inconcl. | ` +
+      `${estado.ignorados} ignor. | ${estado.falhas} falhas | ${duracao}`;
     informacao.textContent =
-      `${prefixo} | Página ${estado.paginaAtual} | ` +
-      `${estado.cliques} tentativa(s) | ${estado.ultimaMensagem}`;
+      `${prefixo} | Página ${estado.paginaAtual} | ${estado.ultimaMensagem}`;
 
     botaoPausa.textContent = estado.finalizado
       ? 'Encerrado'
@@ -286,6 +388,15 @@
     } catch (_) {}
   }
 
+  function limparProgresso() {
+    try {
+      localStorage.removeItem(storageKey);
+      console.log('[ML Cupons] Progresso salvo removido. A execução atual não é reiniciada.');
+    } catch (erro) {
+      console.warn('[ML Cupons] Não foi possível limpar o progresso:', erro);
+    }
+  }
+
   function fechar() {
     estado.encerrado = true;
 
@@ -310,7 +421,8 @@
       pararCupons: pausar,
       pausarCupons: pausar,
       continuarCupons: continuar,
-      fecharCupons: fechar
+      fecharCupons: fechar,
+      limparProgressoCupons: limparProgresso
     };
 
     for (const [nome, referencia] of Object.entries(funcoes)) {
@@ -324,6 +436,7 @@
   window.pausarCupons = pausar;
   window.continuarCupons = continuar;
   window.fecharCupons = fechar;
+  window.limparProgressoCupons = limparProgresso;
 
   window.addEventListener('keydown', teclaParar, true);
   frame.addEventListener('load', registrarTeclaNoFrame);
@@ -755,6 +868,7 @@
 
       botao.click();
 
+      registrarTentativa(itens[i]);
       cliquesPagina++;
       estado.cliques++;
 
@@ -818,18 +932,22 @@
 
       visitadas.add(id);
       estado.paginasIniciadas++;
+      iniciarPagina();
 
       const concluida = await aplicarNaPagina();
 
       if (!concluida || estado.encerrado) return;
 
       estado.paginasConcluidas++;
+      concluirPagina();
 
       if (!(await aguardarExecucao())) return;
 
       if (!encontrarProxima()) {
         estado.motivo =
           'Sem botão Próxima habilitado; fim da paginação detectada.';
+        progresso.terminou = true;
+        salvarProgresso();
         break;
       }
 
@@ -874,7 +992,11 @@
       paginasIniciadas: estado.paginasIniciadas,
       paginasConcluidas: estado.paginasConcluidas,
       tentativasDeClique: estado.cliques,
-      ativacoesConfirmadas: 'não verificadas individualmente',
+      ativacoesConfirmadas: estado.confirmados,
+      ativacoesInconclusivas: estado.inconclusivos,
+      ignorados: estado.ignorados,
+      ultimaPaginaConcluida: progresso.ultimaConcluida,
+      paginaPendente: progresso.paginaPendente,
       falhas: estado.falhas,
       motivo: estado.motivo
     });
