@@ -1,5 +1,7 @@
 # Mercado Livre Coupon Activator
 
+**Versão atual: 0.2.0** · Código mais recente: [`mercadolivre-coupon-activator.js`](./mercadolivre-coupon-activator.js).
+
 Automação em JavaScript para percorrer a lista de cupons do Mercado Livre e tentar ativar os cupons disponíveis em cada página.
 
 > **Projeto independente:** não é oficial nem afiliado ao Mercado Livre. O funcionamento depende da interface atual do site. Use por sua conta e responsabilidade e respeite as regras da plataforma.
@@ -54,6 +56,17 @@ As opções ficam no objeto `CONFIG` no início do arquivo.
 3. Distinguir ativações confirmadas, tentativas, ignorados e erros.
 4. Persistir o progresso para permitir retomada após recarregar a página.
 5. Melhorar o painel e tratar erros transitórios sem repetir cliques indevidos.
+
+## Histórico de versões
+
+| Versão | Código | Principais características |
+| --- | --- | --- |
+| **0.2.0 (atual)** | [`mercadolivre-coupon-activator.js`](./mercadolivre-coupon-activator.js) | Página inicial configurável, pausa/continuação, validações adicionais de navegação e controles |
+| **0.1.0 (histórica)** | [`versions/0.1.0/ML-Cupons.js`](./versions/0.1.0/ML-Cupons.js) | Primeira versão deste projeto, proveniente do [Gist original](https://gist.githubusercontent.com/pitinga/26de31fd8c0cfbf4f7a3c1ed917649e5/raw/c9072ee9721a0574d2620e15b03b5b798c491376/ML-Cupons.js) |
+
+A versão 0.1.0 foi preservada **sem alterações de código**. Seu comentário interno menciona `v2.0`, nomenclatura própria do Gist, distinta do versionamento adotado neste repositório.
+
+Consulte o [CHANGELOG](./CHANGELOG.md) para acompanhar a evolução do projeto.
 
 ## Licença
 
