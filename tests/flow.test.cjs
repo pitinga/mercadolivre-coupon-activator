@@ -10,7 +10,7 @@ const script = fs.readFileSync(
   path.join(__dirname, '..', 'mercadolivre-coupon-activator.js'), 'utf8'
 );
 
-async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRenderizada = null }) {
+async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRenderizada = null, httpStatus = null, mensagemErro = null }) {
   const storage = new Map();
   const storageKey = 'ml-coupon-activator:progress:0.3.0';
   if (salvo) storage.set(storageKey, JSON.stringify(salvo));
@@ -18,6 +18,8 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
   let documentoAtual;
   const fontes = [];
   const cliques = [];
+  const recursos = [];
+  let avisoAtivacao = '';
   let resumo = null;
 
   function elemento(textContent = '', atributos = {}) {
@@ -52,6 +54,15 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
         seletor.includes('[role="button"]') ? [button] : [];
       button.click = () => {
         cliques.push(item.id || pos);
+        if (httpStatus !== null) {
+          recursos.push({
+            name: 'https://www.mercadolivre.com.br/cupons/api/activate?coupon_activate_code=TESTE',
+            startTime: clock,
+            responseEnd: clock + 1,
+            responseStatus: httpStatus
+          });
+        }
+        if (mensagemErro) avisoAtivacao = mensagemErro;
         if (item.confirmar) {
           button.textContent = 'Ativado';
           button.innerText = 'Ativado';
@@ -75,6 +86,11 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
         return null;
       },
       querySelectorAll(seletor) {
+        if (seletor.includes('[role="alert"]') && avisoAtivacao) {
+          const aviso = elemento(avisoAtivacao);
+          aviso.ownerDocument = doc;
+          return [aviso];
+        }
         if (seletor.includes('[data-testid*="coupon-card"]')) return listaCards;
         if (seletor === 'button, a, [role="button"]') return listaBotoes;
         return [];
@@ -91,6 +107,14 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
 
   const window = { addEventListener() {}, removeEventListener() {} };
   const fakeFrame = elemento();
+  fakeFrame.contentWindow = {
+    performance: {
+      now() { return clock; },
+      getEntriesByType(tipo) {
+        return tipo === 'resource' ? recursos : [];
+      }
+    }
+  };
   Object.defineProperty(fakeFrame, 'src', {
     set(u) {
       fontes.push(u);
@@ -195,4 +219,77 @@ test('divergência da paginação impede qualquer clique', async () => {
   assert.equal(run.cliques.length, 0);
   assert.equal(run.resumo.tentativasDeClique, 0);
   assert.equal(run.resumo.falhas, 1);
+});
+
+test('HTTP 403 interrompe após um clique sem avançar nem repetir tentativas', async () => {
+  const run = await executar({
+    pagina: '53',
+    httpStatus: 403,
+    cartoes: [
+      {id:'403-A', confirmar:false},
+      {id:'403-B', confirmar:false}
+    ]
+  });
+  assert.equal(run.cliques.length, 1);
+  assert.equal(run.resumo.tentativasDeClique, 1);
+  assert.equal(run.resumo.recusasHttp, 1);
+  assert.equal(run.resumo.ultimoHttp, 403);
+  assert.equal(run.resumo.falhas, 1);
+  assert.match(run.resumo.motivo, /HTTP 403/);
+  assert.equal(run.progresso.paginaPendente, 53);
+  assert.equal(run.progresso.ultimaConcluida, 52);
+  assert.deepEqual(run.progresso.idsTentados, ['data-coupon-id:403-A']);
+});
+
+test('HTTP 429 interrompe também sem repetição automática', async () => {
+  const run = await executar({
+    httpStatus: 429,
+    cartoes: [{id:'429-A', confirmar:false}, {id:'429-B', confirmar:false}]
+  });
+  assert.equal(run.cliques.length, 1);
+  assert.equal(run.resumo.recusasHttp, 1);
+  assert.match(run.resumo.motivo, /HTTP 429/);
+});
+
+test('duas recusas HTTP 500 consecutivas interrompem antes do terceiro cupom', async () => {
+  const run = await executar({
+    httpStatus: 500,
+    cartoes: [
+      {id:'500-A', confirmar:false},
+      {id:'500-B', confirmar:false},
+      {id:'500-C', confirmar:false}
+    ]
+  });
+  assert.equal(run.cliques.length, 2);
+  assert.equal(run.resumo.recusasHttp, 2);
+  assert.equal(run.resumo.falhas, 2);
+  assert.equal(run.progresso.paginaPendente, 3);
+});
+
+test('toast de erro Tivemos um problema interrompe quando status HTTP não está visível', async () => {
+  const run = await executar({
+    mensagemErro: 'Tivemos um problema',
+    cartoes: [
+      {id:'AVISO-A', confirmar:false},
+      {id:'AVISO-B', confirmar:false}
+    ]
+  });
+  assert.equal(run.cliques.length, 1);
+  assert.match(run.resumo.motivo, /Tivemos um problema/);
+  assert.equal(run.resumo.falhas, 1);
+});
+
+test('três tentativas sem confirmação interrompem conservadoramente', async () => {
+  const run = await executar({
+    cartoes: [
+      {id:'INC-A', confirmar:false},
+      {id:'INC-B', confirmar:false},
+      {id:'INC-C', confirmar:false},
+      {id:'INC-D', confirmar:false}
+    ]
+  });
+  assert.equal(run.cliques.length, 3);
+  assert.equal(run.resumo.ativacoesInconclusivas, 3);
+  assert.match(run.resumo.motivo, /sem confirmação/);
+  assert.equal(run.progresso.paginaPendente, 3);
 });
