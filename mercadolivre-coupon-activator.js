@@ -1012,6 +1012,7 @@
         } else {
           estado.inconclusivos++;
           estado.inconclusivosConsecutivos++;
+          estado.falhasHttpConsecutivas = 0;
         }
 
         mostrar(
