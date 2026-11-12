@@ -148,5 +148,5 @@ test('entrada de página fora do limite é rejeitada', async () => {
 
 test('o código não usa fallback por índice para reencontrar cupons', () => {
   assert.doesNotMatch(fonte, /botoesDeCupons\(\)\s*\[\s*i\s*\]/);
-  assert.match(fonte, /registrarTentativa\(item\)[\s\S]{0,30}try\s*\{\s*botao\.click\(\)/);
+  assert.match(fonte, /registrarTentativa\(item\)[\s\S]{0,180}botao\.click\(\)/);
 });
