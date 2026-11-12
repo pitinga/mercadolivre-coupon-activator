@@ -1,0 +1,29 @@
+name: JavaScript CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop/0.3.0
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Syntax and unit checks (Node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Node 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Check JavaScript syntax
+        run: node --check mercadolivre-coupon-activator.js
+      - name: Run tests
+        run: node --test tests/*.test.cjs
