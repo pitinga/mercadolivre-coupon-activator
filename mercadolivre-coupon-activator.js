@@ -1,5 +1,5 @@
-// Mercado Livre - Ativar cupons de todas as páginas
-// Com página inicial e pausa/continuação.
+// Mercado Livre - Coupon Activator v0.3.0 (desenvolvimento)
+// Acesso direto via &page=X, painel, retomada e confirmação conservadora.
 //
 // COMO USAR
 // 1. Faça login no Mercado Livre.
@@ -21,11 +21,14 @@
     url: 'https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all',
     maxPaginas: 200,
     maxCuponsPorPagina: 300,
-    intervaloCliquesMs: 650,
-    esperaAposPaginaMs: 1400,
-    esperaAposCuponsMs: 1100,
+    intervaloCliquesMs: 1000,
+    esperaAposCuponsMs: 600,
+    esperaAposPaginaMs: 550,
+    esperaConfirmacaoMs: 1800,
     timeoutPrimeiraPaginaMs: 25000,
-    timeoutMudancaPaginaMs: 16000
+    timeoutMudancaPaginaMs: 16000,
+    intervaloVerificacaoMs: 250,
+    maxTentativasNavegacao: 2
   };
 
   const origem = new URL(CONFIG.url).origin;
@@ -438,19 +441,96 @@
     };
   }
 
-  function paginaDiferente(antes, depois) {
-    return (
-      antes.url !== depois.url ||
-      (
-        antes.numero !== null &&
-        depois.numero !== null &&
-        antes.numero !== depois.numero
-      ) ||
-      (
-        Boolean(antes.conteudo && depois.conteudo) &&
-        antes.conteudo !== depois.conteudo
-      )
+  function urlPagina(pagina) {
+    const url = new URL(CONFIG.url);
+    if (pagina > 1) url.searchParams.set('page', String(pagina));
+    return url.href;
+  }
+
+  function paginaDaUrl(doc) {
+    const valor = new URL(doc.location.href).searchParams.get('page');
+    return valor !== null && /^[1-9]\d*$/.test(valor)
+      ? Number(valor) : null;
+  }
+
+  // Nunca considerar apenas uma alteração de texto uma navegação confirmada.
+  function paginaConfirmada(doc, esperada) {
+    const url = paginaDaUrl(doc);
+    const atual = numeroPagina(doc);
+    if (url !== null && url !== esperada) return false;
+    if (atual !== null) return atual === esperada;
+    if (esperada === 1) return url === null || url === 1;
+    if (url !== esperada) return false;
+
+    // Na ausência de indicação da página selecionada, a paginação
+    // precisa confirmar a página por meio de um link adjacente.
+    const links = doc.querySelectorAll(
+      'a[rel="next"], li.andes-pagination__button--next a, ' +
+      '.andes-pagination__button--next a, a[rel="prev"]'
     );
+    for (const link of links) {
+      const destino = link.getAttribute('href');
+      if (!destino) continue;
+      try {
+        const seguinte = Number(new URL(destino, doc.location.href).searchParams.get('page'));
+        if (link.getAttribute('rel') === 'prev' && seguinte === esperada - 1) return true;
+        if (link.getAttribute('rel') !== 'prev' && seguinte === esperada + 1) return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  function verificarBloqueios(doc) {
+    const titulo = texto(doc.title ? { textContent: doc.title } : null);
+    if (/captcha|acesso negado|verifica[cç][aã]o de seguran[cç]a/i.test(titulo)) {
+      throw new Error('Página exige verificação ou bloqueou o acesso. Interrompido.');
+    }
+    const alerta = [...doc.querySelectorAll('[role="alert"], .andes-message')]
+      .map(texto).join(' ');
+    if (/muitas solicita[cç][oõ]es|tente novamente mais tarde|too many requests/i.test(alerta)) {
+      throw new Error('Limitação temporária do serviço. Interrompido sem insistir.');
+    }
+  }
+
+  async function aguardarPagina(esperada, timeoutMs) {
+    const inicio = tempoAtivo();
+    let assinatura = '';
+    let estavelDesde = null;
+
+    while (!estado.encerrado && tempoAtivo() - inicio < timeoutMs) {
+      if (!(await esperar(CONFIG.intervaloVerificacaoMs))) return false;
+      let doc;
+      try { doc = documento(); } catch (_) { continue; }
+      if (doc.readyState === 'loading') continue;
+      verificarBloqueios(doc);
+      if (!paginaConfirmada(doc, esperada)) continue;
+
+      const cartoes = [...doc.querySelectorAll(seletorCartao)]
+        .filter(el => el.getClientRects().length > 0);
+      const botoes = botoesDeCupons();
+      const principal = doc.querySelector('main');
+      const vazio = /nenhum cupom|sem cupons|n[aã]o encontramos cupons/i
+        .test(texto(principal || doc.body));
+      const carregando = doc.querySelector(
+        '[aria-busy="true"], [role="progressbar"], .andes-spinner'
+      );
+      if (carregando || (!cartoes.length && !botoes.length && !vazio)) continue;
+
+      const nova = JSON.stringify([
+        paginaDaUrl(doc), numeroPagina(doc), cartoes.length, botoes.length
+      ]);
+      if (nova !== assinatura) {
+        assinatura = nova;
+        estavelDesde = tempoAtivo();
+        continue;
+      }
+      if (estavelDesde !== null &&
+          tempoAtivo() - estavelDesde >= CONFIG.esperaAposPaginaMs) {
+        registrarTeclaNoFrame();
+        return true;
+      }
+    }
+    return false;
   }
 
   function identificadorPagina(foto) {
@@ -515,83 +595,47 @@
     return null;
   }
 
-  async function aguardarOutraPagina(anterior) {
-    const inicio = tempoAtivo();
-
-    while (
-      !estado.encerrado &&
-      tempoAtivo() - inicio < CONFIG.timeoutMudancaPaginaMs
-    ) {
-      if (!(await esperar(300))) return false;
-
-      let atual;
-
-      try {
-        atual = fotografiaPagina();
-      } catch (_) {
-        continue;
+  async function navegarDireto(pagina, timeoutMs) {
+    for (let tentativa = 1; tentativa <= CONFIG.maxTentativasNavegacao; tentativa++) {
+      if (!(await aguardarExecucao())) return false;
+      frame.src = urlPagina(pagina);
+      mostrar(`Carregando diretamente a página ${pagina} (tentativa ${tentativa})...`);
+      if (await aguardarPagina(pagina, timeoutMs)) {
+        estado.paginaAtual = pagina;
+        return true;
       }
-
-      if (!paginaDiferente(anterior, atual)) continue;
-
-      if (!(await esperar(CONFIG.esperaAposPaginaMs))) return false;
-
-      try {
-        const confirmacao = fotografiaPagina();
-
-        if (paginaDiferente(anterior, confirmacao)) {
-          registrarTeclaNoFrame();
-          return true;
-        }
-      } catch (_) {}
     }
-
     return false;
   }
 
   async function avancarPagina() {
     if (!(await aguardarExecucao())) return false;
-
+    const esperada = estado.paginaAtual + 1;
     let proximo = encontrarProxima();
     if (!proximo) return false;
 
-    proximo.scrollIntoView({
-      block: 'center',
-      behavior: 'auto'
-    });
-
-    if (!(await esperar(200))) return false;
-
-    // Reconsulta depois da espera: a interface pode ter sido atualizada.
+    proximo.scrollIntoView({ block: 'center', behavior: 'auto' });
+    if (!(await esperar(150))) return false;
     proximo = encontrarProxima();
-
     if (!proximo) {
-      throw new Error(
-        'O botão Próxima ficou indisponível antes da navegação.'
-      );
+      throw new Error('Botão Próxima indisponível antes da navegação.');
     }
-
-    const anterior = fotografiaPagina();
 
     proximo.click();
-
-    const mudou = await aguardarOutraPagina(anterior);
-
+    mostrar(`Verificando mudança para a página ${esperada}...`);
+    if (await aguardarPagina(esperada, CONFIG.timeoutMudancaPaginaMs)) {
+      estado.paginaAtual = esperada;
+      return true;
+    }
     if (estado.encerrado) return false;
 
-    if (!mudou) {
-      throw new Error(
-        'Não foi possível confirmar a mudança de página. ' +
-        'Processamento encerrado para evitar cliques repetidos.'
-      );
-    }
-
-    const numeroDetectado = numeroPagina(documento());
-
-    estado.paginaAtual =
-      numeroDetectado ?? estado.paginaAtual + 1;
-
-    return true;
+    // Recuperação sem clicar novamente em Próxima nem em cupons.
+    console.warn('[ML Cupons] Navegação não confirmada; tentando URL direta.');
+    if (await navegarDireto(esperada, CONFIG.timeoutMudancaPaginaMs)) return true;
+    throw new Error(
+      `Não foi possível confirmar a página ${esperada}. ` +
+      'Nenhum cupom desta página foi processado.'
+    );
   }
 
   // Usa somente identificadores explícitos do próprio botão ou cartão.
@@ -737,99 +781,23 @@
   }
 
   async function carregarPrimeiraPagina() {
-    mostrar('Carregando a listagem de todos os cupons...');
-
-    frame.src = CONFIG.url;
+    mostrar(`Abrindo diretamente a página ${paginaInicial}...`);
     document.body.appendChild(container);
-
-    const inicio = tempoAtivo();
-
-    while (
-      !estado.encerrado &&
-      tempoAtivo() - inicio < CONFIG.timeoutPrimeiraPaginaMs
-    ) {
-      if (!(await esperar(200))) return false;
-
-      let pronto = false;
-
-      try {
-        const doc = documento();
-        pronto = doc.readyState === 'complete';
-      } catch (_) {}
-
-      if (!pronto) continue;
-
-      if (!(await esperar(CONFIG.esperaAposPaginaMs))) return false;
-
-      documento();
-      registrarTeclaNoFrame();
-
-      estado.paginaAtual =
-        numeroPagina(documento()) ?? 1;
-
-      return true;
+    if (!(await navegarDireto(paginaInicial, CONFIG.timeoutPrimeiraPaginaMs))) {
+      if (estado.encerrado) return false;
+      throw new Error(
+        `Não foi possível verificar o carregamento da página ${paginaInicial}. ` +
+        'Verifique o login, o iframe e os indicadores de paginação.'
+      );
     }
-
-    if (estado.encerrado) return false;
-
-    throw new Error(
-      'Tempo limite ao carregar os cupons. ' +
-      'Verifique login, bloqueio do iframe ou conexão.'
-    );
+    return true;
   }
 
   try {
     if (!(await carregarPrimeiraPagina())) return;
 
-    if (estado.paginaAtual > paginaInicial) {
-      throw new Error(
-        `A listagem abriu na página ${estado.paginaAtual}, ` +
-        `posterior à página inicial solicitada (${paginaInicial}).`
-      );
-    }
-
-    const passagem = new Set();
-
-    // Chega à página inicial sem ativar cupons nas anteriores.
-    while (
-      !estado.encerrado &&
-      estado.paginaAtual < paginaInicial
-    ) {
-      if (!(await aguardarExecucao())) return;
-
-      const foto = fotografiaPagina();
-      const id = identificadorPagina(foto);
-
-      if (passagem.has(id)) {
-        throw new Error(
-          'Página repetida durante a navegação até a página inicial.'
-        );
-      }
-
-      passagem.add(id);
-
-      mostrar(
-        `Indo à página ${paginaInicial}: ` +
-        `passando pela ${estado.paginaAtual}, sem ativar cupons.`
-      );
-
-      const avancou = await avancarPagina();
-
-      if (estado.encerrado) return;
-
-      if (!avancou) {
-        throw new Error(
-          `Não foi possível chegar à página ${paginaInicial}. ` +
-          `Sem Próxima habilitado na página ${estado.paginaAtual}.`
-        );
-      }
-
-      if (estado.paginaAtual > paginaInicial) {
-        throw new Error(
-          'A paginação ultrapassou a página inicial solicitada.'
-        );
-      }
-    }
+    // A página solicitada foi acessada diretamente via &page=X.
+    // Não percorremos páginas anteriores.
 
     const visitadas = new Set();
 
