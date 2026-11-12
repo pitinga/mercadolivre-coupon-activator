@@ -389,6 +389,10 @@
   }
 
   function limparProgresso() {
+    if (!estado.finalizado && !estado.pausado) {
+      console.warn('[ML Cupons] Pause ou finalize antes de limpar o progresso.');
+      return;
+    }
     try {
       localStorage.removeItem(storageKey);
       console.log('[ML Cupons] Progresso salvo removido. A execução atual não é reiniciada.');
@@ -496,14 +500,20 @@
     );
   }
 
+  function botaoAtivavel(el) {
+    return /^(?:aplicar|ativar|resgatar)(?:\s+(?:cupom|agora))?$/i.test(texto(el));
+  }
+
   function botoesDeCupons() {
-    return [
-      ...documento().querySelectorAll('button, a, [role="button"]')
-    ]
-      .filter(el =>
-        /^(?:aplicar|ativar|resgatar)(?:\s+(?:cupom|agora))?$/i
-          .test(texto(el))
-      )
+    const doc = documento();
+    const cartoes = [...doc.querySelectorAll(seletorCartao)]
+      .filter(el => el.getClientRects().length > 0);
+    const controles = cartoes.length
+      ? cartoes.flatMap(el => [...el.querySelectorAll('button, a, [role="button"]')])
+      : [...doc.querySelectorAll('button, a, [role="button"]')];
+
+    return [...new Set(controles)]
+      .filter(botaoAtivavel)
       .filter(el => !el.querySelector('button, a, [role="button"]'))
       .filter(visivelEHabilitado);
   }
@@ -751,44 +761,85 @@
     );
   }
 
-  // Usa somente identificadores explícitos do próprio botão ou cartão.
-  // Na ausência deles, mantém a referência original do elemento.
+  // Só identificadores explícitos; nunca inferir cupom pelo índice visual.
   function chaveCupom(botao) {
     const cartao = botao.closest(seletorCartao);
-
     for (const el of [botao, cartao]) {
       if (!el) continue;
-
-      for (
-        const atributo of [
-          'data-coupon-id',
-          'data-couponid',
-          'data-coupon_id'
-        ]
-      ) {
+      for (const atributo of [
+        'data-coupon-id', 'data-couponid', 'data-coupon_id',
+        'data-voucher-id', 'data-promotion-id'
+      ]) {
         const valor = el.getAttribute(atributo);
         if (valor) return `${atributo}:${valor}`;
       }
     }
-
     return null;
   }
 
   function resolverBotao(item) {
-    if (item.elemento.isConnected) return item.elemento;
+    if (item.elemento.isConnected && botaoAtivavel(item.elemento) &&
+        (!item.chave || chaveCupom(item.elemento) === item.chave)) {
+      return item.elemento;
+    }
     if (!item.chave) return null;
-
     const candidatos = botoesDeCupons()
       .filter(botao => chaveCupom(botao) === item.chave);
-
     return candidatos.length === 1 ? candidatos[0] : null;
+  }
+
+  // A confirmação precisa estar vinculada ao botão/cartão do item.
+  // Não usar toasts globais nem o simples desaparecimento do botão.
+  function cupomConfirmado(item) {
+    let candidatos = [];
+    if (item.elemento.isConnected &&
+        (!item.chave || chaveCupom(item.elemento) === item.chave)) {
+      candidatos.push(item.elemento);
+    }
+
+    if (item.chave) {
+      const doc = documento();
+      for (const el of doc.querySelectorAll('button, a, [role="button"]')) {
+        if (el.isConnected && chaveCupom(el) === item.chave) {
+          candidatos.push(el);
+        }
+      }
+    }
+
+    return [...new Set(candidatos)].some(el => {
+      const rotulos = [
+        texto(el),
+        el.getAttribute('aria-label'),
+        el.getAttribute('title')
+      ].filter(Boolean);
+      return rotulos.some(rotulo =>
+        /^(?:ativad[oa]|resgatad[oa]|cupom aplicad[oa]|aplicad[oa]|cupom resgatado)(?:\b|$)/i
+          .test(rotulo)
+      );
+    });
+  }
+
+  async function aguardarConfirmacao(item) {
+    const inicio = tempoAtivo();
+    while (!estado.encerrado &&
+           tempoAtivo() - inicio < CONFIG.esperaConfirmacaoMs) {
+      if (!(await esperar(CONFIG.intervaloVerificacaoMs))) return false;
+      try {
+        verificarBloqueios(documento());
+        if (cupomConfirmado(item)) return true;
+      } catch (erro) {
+        // Erros de bloqueio devem encerrar, não ser escondidos como não confirmação.
+        if (/Limitação temporária|bloqueou o acesso|exige verificação/.test(erro.message)) {
+          throw erro;
+        }
+      }
+    }
+    return false;
   }
 
   async function aplicarNaPagina() {
     if (!(await aguardarExecucao())) return false;
-
     const botoes = botoesDeCupons();
-
     if (botoes.length > CONFIG.maxCuponsPorPagina) {
       throw new Error(
         `Foram encontrados ${botoes.length} controles; ` +
@@ -800,97 +851,90 @@
       elemento,
       chave: chaveCupom(elemento)
     }));
-
-    // Se uma chave não for única, não a utiliza para reencontrar controles.
     const contagem = new Map();
-
     for (const item of itens) {
       if (item.chave) {
-        contagem.set(
-          item.chave,
-          (contagem.get(item.chave) || 0) + 1
-        );
+        contagem.set(item.chave, (contagem.get(item.chave) || 0) + 1);
       }
     }
-
     for (const item of itens) {
       if (item.chave && contagem.get(item.chave) !== 1) {
         item.chave = null;
       }
     }
 
-    mostrar(
-      `${itens.length} cupom(ns) disponível(is) nesta página.`
-    );
+    // Se a página estava incompleta em outra execução, suprimir
+    // identificadores já acionados e controles sem identidade confiável.
+    const jaTentados = new Set(progresso.idsTentados);
+    const preservarSemId = retomarPagina &&
+      progresso.paginaPendente === estado.paginaAtual &&
+      progresso.semIdTentado;
 
+    mostrar(`${itens.length} cupom(ns) localizados nesta página.`);
     let cliquesPagina = 0;
-    let ignorados = 0;
+    let errosConsecutivos = 0;
 
     for (let i = 0; i < itens.length; i++) {
       if (!(await aguardarExecucao())) return false;
+      const item = itens[i];
 
-      let botao = resolverBotao(itens[i]);
-
-      if (!botao) {
-        throw new Error(
-          `O controle ${i + 1} da página ${estado.paginaAtual} ` +
-          'foi recriado sem identificação estável. ' +
-          'Não será usado um índice da lista para adivinhar outro cupom.'
-        );
-      }
-
-      if (!visivelEHabilitado(botao)) {
-        ignorados++;
+      if ((item.chave && jaTentados.has(item.chave)) ||
+          (!item.chave && preservarSemId)) {
+        estado.ignorados++;
         continue;
       }
 
-      botao.scrollIntoView({
-        block: 'center',
-        behavior: 'auto'
-      });
+      let botao = resolverBotao(item);
+      if (!botao || !visivelEHabilitado(botao)) {
+        estado.ignorados++;
+        mostrar(`Item ${i + 1}/${itens.length} indisponível ou sem identidade estável.`);
+        continue;
+      }
 
+      botao.scrollIntoView({ block: 'center', behavior: 'auto' });
       if (!(await esperar(120))) return false;
-
-      // Revalida após a espera e após uma eventual pausa.
-      botao = resolverBotao(itens[i]);
-
-      if (!botao) {
-        throw new Error(
-          `O controle ${i + 1} mudou antes do clique e ` +
-          'não pôde ser identificado com segurança.'
-        );
-      }
-
-      if (!visivelEHabilitado(botao)) {
-        ignorados++;
+      botao = resolverBotao(item);
+      if (!botao || !visivelEHabilitado(botao)) {
+        estado.ignorados++;
         continue;
       }
 
-      botao.click();
+      // Registrar antes de clicar para proteger a retomada após falhas.
+      registrarTentativa(item);
+      try {
+        botao.click();
+        estado.cliques++;
+        cliquesPagina++;
+        errosConsecutivos = 0;
 
-      registrarTentativa(itens[i]);
-      cliquesPagina++;
-      estado.cliques++;
+        const confirmado = await aguardarConfirmacao(item);
+        if (confirmado) estado.confirmados++;
+        else estado.inconclusivos++;
 
-      mostrar(
-        `Item ${i + 1}/${itens.length}; ` +
-        `${cliquesPagina} clique(s) nesta página.`
-      );
-
-      if (!(await esperar(CONFIG.intervaloCliquesMs))) {
-        return false;
+        mostrar(
+          `Item ${i + 1}/${itens.length}: ` +
+          (confirmado ? 'ativação confirmada pela interface.' :
+            'tentativa sem confirmação individual.')
+        );
+      } catch (erro) {
+        estado.falhas++;
+        errosConsecutivos++;
+        console.warn(`[ML Cupons] Falha no item ${i + 1}:`, erro);
+        if (/Limitação temporária|bloqueou o acesso|exige verificação/.test(erro.message)) {
+          throw erro;
+        }
+        if (errosConsecutivos >= 3) {
+          throw new Error('Três falhas consecutivas em cupons. Execução interrompida.');
+        }
       }
+      if (!(await esperar(CONFIG.intervaloCliquesMs))) return false;
     }
 
-    if (!(await esperar(CONFIG.esperaAposCuponsMs))) {
-      return false;
-    }
-
+    if (!(await esperar(CONFIG.esperaAposCuponsMs))) return false;
     mostrar(
-      `Página concluída: ${cliquesPagina} clique(s), ` +
-      `${ignorados} controle(s) indisponível(is).`
+      `Página concluída: ${cliquesPagina} tentativa(s), ` +
+      `${estado.confirmados} confirmação(ões) acumulada(s).`
     );
-
     return true;
   }
 
