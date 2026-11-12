@@ -1,0 +1,42 @@
+name: Create 0.1.0 and 0.2.0 tags
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/create-initial-tags.yml
+
+permissions:
+  contents: write
+
+jobs:
+  create-tags:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish immutable tags for verified snapshots
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          create_tag() {
+            local name="$1"
+            local sha="$2"
+            local existing
+            if existing=$(gh api "repos/$GH_REPO/git/ref/tags/$name" --jq '.object.sha' 2>/dev/null); then
+              if [ "$existing" = "$sha" ]; then
+                echo "Tag $name already exists at $sha"
+                return 0
+              fi
+              echo "Refusing to alter existing tag $name ($existing, expected $sha)" >&2
+              exit 1
+            fi
+            gh api -X POST "repos/$GH_REPO/git/refs" \
+              -f "ref=refs/tags/$name" \
+              -f "sha=$sha" \
+              --jq '.ref'
+          }
+          create_tag "0.1.0" "eae429ea7352374064e5ba8923320c05ef97c925"
+          create_tag "0.2.0" "ebc7f0c5027b50a5f4167af498ded24f23462957"
