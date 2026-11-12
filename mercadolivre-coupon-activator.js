@@ -6,13 +6,13 @@
 // 2. Abra:
 //    https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all
 // 3. Abra F12 > Console, cole todo este script e pressione Enter.
-// 4. Informe a página inicial. Enter usa a página 1.
+// 4. Informe a página inicial. Enter sugere a página pendente ou 1.
 // 5. Use "Pausar/Continuar" ou ESC para pausar.
 // 6. Use "Fechar" para encerrar e remover o painel.
 //
-// A retomada funciona enquanto o painel e a aba permanecerem abertos.
-// Não há persistência após atualizar ou fechar a aba.
-// Os contadores representam TENTATIVAS, não ativações confirmadas.
+// O progresso é armazenado localmente, sem credenciais.
+// As confirmações dependem de sinais explícitos na interface;
+// tentativas não confirmadas são contabilizadas separadamente.
 
 (async () => {
   'use strict';
@@ -184,6 +184,8 @@
       .replace(/\s+/g, ' ')
       .trim();
 
+  const inicioExecucao = performance.now();
+
   function tempoAtivo() {
     const agora = performance.now();
 
@@ -191,7 +193,7 @@
       ? 0
       : agora - estado.pausaInicio;
 
-    return agora - estado.pausaAcumuladaMs - pausaAtual;
+    return agora - inicioExecucao - estado.pausaAcumuladaMs - pausaAtual;
   }
 
   async function aguardarExecucao() {
@@ -867,7 +869,7 @@
     // identificadores já acionados e controles sem identidade confiável.
     const jaTentados = new Set(progresso.idsTentados);
     const preservarSemId = retomarPagina &&
-      progresso.paginaPendente === estado.paginaAtual &&
+      estado.paginaAtual === paginaInicial &&
       progresso.semIdTentado;
 
     mostrar(`${itens.length} cupom(ns) localizados nesta página.`);
