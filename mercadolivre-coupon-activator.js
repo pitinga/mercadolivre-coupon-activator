@@ -28,7 +28,9 @@
     timeoutPrimeiraPaginaMs: 25000,
     timeoutMudancaPaginaMs: 16000,
     intervaloVerificacaoMs: 250,
-    maxTentativasNavegacao: 2
+    maxTentativasNavegacao: 2,
+    maxRespostasInconclusivasConsecutivas: 3,
+    maxFalhasHttpConsecutivas: 2
   };
 
   const origem = new URL(CONFIG.url).origin;
@@ -168,6 +170,10 @@
     cliques: 0,
     confirmados: 0,
     inconclusivos: 0,
+    inconclusivosConsecutivos: 0,
+    recusados: 0,
+    falhasHttpConsecutivas: 0,
+    ultimoHttp: null,
     ignorados: 0,
     falhas: 0,
     motivo: '',
@@ -304,7 +310,8 @@
     estatisticas.textContent =
       `${estado.paginasConcluidas} pág. | ${estado.cliques} tent. | ` +
       `${estado.confirmados} confirm. | ${estado.inconclusivos} inconcl. | ` +
-      `${estado.ignorados} ignor. | ${estado.falhas} falhas | ${duracao}`;
+      `${estado.recusados} recus. | ${estado.ignorados} ignor. | ` +
+      `${estado.falhas} falhas | HTTP ${estado.ultimoHttp ?? '—'} | ${duracao}`;
     informacao.textContent =
       `${prefixo} | Página ${estado.paginaAtual} | ${estado.ultimaMensagem}`;
 
@@ -606,16 +613,73 @@
     return false;
   }
 
+  // Os avisos globais não comprovam sucesso, mas erros explícitos devem
+  // interromper a automação, mesmo quando o status HTTP não está disponível.
+  function textoAvisos(doc) {
+    return [...doc.querySelectorAll(
+      '[role="alert"], [role="status"], [aria-live="assertive"], ' +
+      '.andes-message, .andes-snackbar, .andes-toast, ' +
+      '[class*="snackbar"], [class*="toast"]'
+    )].filter(el => el.getClientRects().length > 0)
+      .map(texto).join(' ');
+  }
+
+  function erroInterrupcao(mensagem, status = null) {
+    const erro = new Error(mensagem);
+    erro.interromper = true;
+    erro.respostaHttp = status;
+    return erro;
+  }
+
   function verificarBloqueios(doc) {
     const titulo = texto(doc.title ? { textContent: doc.title } : null);
     if (/captcha|acesso negado|verifica[cç][aã]o de seguran[cç]a/i.test(titulo)) {
-      throw new Error('Página exige verificação ou bloqueou o acesso. Interrompido.');
+      throw erroInterrupcao('Página exige verificação ou bloqueou o acesso.');
     }
-    const alerta = [...doc.querySelectorAll('[role="alert"], .andes-message')]
-      .map(texto).join(' ');
-    if (/muitas solicita[cç][oõ]es|tente novamente mais tarde|too many requests/i.test(alerta)) {
-      throw new Error('Limitação temporária do serviço. Interrompido sem insistir.');
+    const aviso = textoAvisos(doc);
+    if (/muitas solicita[cç][oõ]es|tente novamente mais tarde|too many requests/i.test(aviso)) {
+      throw erroInterrupcao('Limitação temporária do serviço indicada pela interface.');
     }
+    if (/tivemos um problema|ocorreu um problema|não foi possível ativar|nao foi possivel ativar/i.test(aviso)) {
+      throw erroInterrupcao('Mercado Livre exibiu mensagem de erro na ativação: ' + aviso.slice(0, 160));
+    }
+  }
+
+  // Lê SOMENTE os metadados de rede já coletados pelo navegador.
+  // Não faz novos POSTs, não intercepta nem altera requisições.
+  // responseStatus é suportado nos navegadores modernos, mas pode ser
+  // omitido por configurações de privacidade; nesse caso usamos os avisos.
+  function marcoAtivacao() {
+    try {
+      const desempenho = frame.contentWindow?.performance;
+      return desempenho && typeof desempenho.now === 'function'
+        ? desempenho.now() : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function statusHttpAtivacao(marco) {
+    if (marco === null) return null;
+    try {
+      const desempenho = frame.contentWindow?.performance;
+      if (!desempenho?.getEntriesByType) return null;
+      const recursos = desempenho.getEntriesByType('resource');
+      for (let i = recursos.length - 1; i >= 0; i--) {
+        const recurso = recursos[i];
+        if (recurso.startTime + 1 < marco || !recurso.responseEnd) continue;
+        let destino;
+        try { destino = new URL(recurso.name); } catch (_) { continue; }
+        if (destino.origin !== origem ||
+            destino.pathname !== '/cupons/api/activate') continue;
+        const codigo = Number(recurso.responseStatus);
+        return Number.isInteger(codigo) && codigo >= 100 && codigo <= 599
+          ? codigo : null;
+      }
+    } catch (erro) {
+      console.warn('[ML Cupons] Status HTTP não acessível:', erro);
+    }
+    return null;
   }
 
   async function aguardarPagina(esperada, timeoutMs) {
@@ -822,22 +886,37 @@
     });
   }
 
-  async function aguardarConfirmacao(item) {
+  async function aguardarConfirmacao(item, marco) {
     const inicio = tempoAtivo();
     while (!estado.encerrado &&
            tempoAtivo() - inicio < CONFIG.esperaConfirmacaoMs) {
-      if (!(await esperar(CONFIG.intervaloVerificacaoMs))) return false;
-      try {
-        verificarBloqueios(documento());
-        if (cupomConfirmado(item)) return true;
-      } catch (erro) {
-        // Erros de bloqueio devem encerrar, não ser escondidos como não confirmação.
-        if (/Limitação temporária|bloqueou o acesso|exige verificação/.test(erro.message)) {
-          throw erro;
+      if (!(await esperar(CONFIG.intervaloVerificacaoMs))) {
+        return { tipo: 'interrompido', http: null };
+      }
+
+      const status = statusHttpAtivacao(marco);
+      if (status !== null) {
+        estado.ultimoHttp = status;
+        if ([401, 403, 429].includes(status)) {
+          throw erroInterrupcao(
+            `Mercado Livre recusou a ativação: HTTP ${status}. ` +
+            'Execução interrompida; não serão feitas novas tentativas.',
+            status
+          );
+        }
+        if (status >= 400) {
+          return { tipo: 'recusado', http: status };
         }
       }
+
+      // Erros na UI impedem seguir para outro cupom, mesmo sem status HTTP.
+      const doc = documento();
+      verificarBloqueios(doc);
+      if (cupomConfirmado(item)) {
+        return { tipo: 'confirmado', http: status };
+      }
     }
-    return false;
+    return { tipo: 'inconclusivo', http: statusHttpAtivacao(marco) };
   }
 
   async function aplicarNaPagina() {
@@ -876,7 +955,6 @@
 
     mostrar(`${itens.length} cupom(ns) localizados nesta página.`);
     let cliquesPagina = 0;
-    let errosConsecutivos = 0;
 
     for (let i = 0; i < itens.length; i++) {
       if (!(await aguardarExecucao())) return false;
@@ -908,33 +986,72 @@
         continue;
       }
 
+      // Uma mensagem de erro antiga também bloqueia novas ativações.
+      verificarBloqueios(documento());
+
       // Registrar antes de clicar para proteger a retomada após falhas.
       registrarTentativa(item);
       try {
+        const marco = marcoAtivacao();
         botao.click();
         estado.cliques++;
         cliquesPagina++;
-        errosConsecutivos = 0;
 
-        const confirmado = await aguardarConfirmacao(item);
-        if (confirmado) estado.confirmados++;
-        else estado.inconclusivos++;
+        const resultado = await aguardarConfirmacao(item, marco);
+        if (resultado.tipo === 'interrompido') return false;
+
+        if (resultado.tipo === 'confirmado') {
+          estado.confirmados++;
+          estado.inconclusivosConsecutivos = 0;
+          estado.falhasHttpConsecutivas = 0;
+        } else if (resultado.tipo === 'recusado') {
+          estado.recusados++;
+          estado.falhas++;
+          estado.falhasHttpConsecutivas++;
+          estado.inconclusivosConsecutivos = 0;
+        } else {
+          estado.inconclusivos++;
+          estado.inconclusivosConsecutivos++;
+        }
 
         mostrar(
           `Item ${i + 1}/${itens.length}: ` +
-          (confirmado ? 'ativação confirmada pela interface.' :
-            'tentativa sem confirmação individual.')
+          (resultado.tipo === 'confirmado' ? 'ativação confirmada.' :
+           resultado.tipo === 'recusado' ? `recusado (HTTP ${resultado.http}).` :
+            'sem confirmação individual.')
         );
+
+        if (estado.falhasHttpConsecutivas >= CONFIG.maxFalhasHttpConsecutivas) {
+          throw erroInterrupcao(
+            `${estado.falhasHttpConsecutivas} recusas HTTP consecutivas. ` +
+            'Execução interrompida para não insistir nas ativações.'
+          );
+        }
+        if (estado.inconclusivosConsecutivos >=
+            CONFIG.maxRespostasInconclusivasConsecutivas) {
+          throw erroInterrupcao(
+            `${estado.inconclusivosConsecutivos} tentativas consecutivas sem confirmação. ` +
+            'Interrompido para revisão do resultado das ativações.'
+          );
+        }
       } catch (erro) {
-        estado.falhas++;
-        errosConsecutivos++;
-        console.warn(`[ML Cupons] Falha no item ${i + 1}:`, erro);
-        if (/Limitação temporária|bloqueou o acesso|exige verificação/.test(erro.message)) {
-          throw erro;
+        if (!erro.contabilizado && erro.respostaHttp !== null &&
+            erro.respostaHttp !== undefined && erro.respostaHttp >= 400) {
+          estado.recusados++;
         }
-        if (errosConsecutivos >= 3) {
-          throw new Error('Três falhas consecutivas em cupons. Execução interrompida.');
+        if (!erro.contabilizado) {
+          // Não duplicar a contagem de falhas de respostas já contabilizadas.
+          if (!(erro.interromper && erro.respostaHttp === null &&
+                (estado.falhasHttpConsecutivas >= CONFIG.maxFalhasHttpConsecutivas))) {
+            estado.falhas++;
+          }
+          erro.contabilizado = true;
         }
+        console.warn(`[ML Cupons] Interrupção/falha no item ${i + 1}:`, erro);
+        if (erro.interromper) throw erro;
+        throw erroInterrupcao(
+          'Falha inesperada ao processar cupom: ' + erro.message
+        );
       }
       if (!(await esperar(CONFIG.intervaloCliquesMs))) return false;
     }
@@ -1027,7 +1144,7 @@
         : 'Execução concluída';
     }
   } catch (erro) {
-    estado.falhas++;
+    if (!erro.contabilizado) estado.falhas++;
     estado.motivo = `Erro: ${erro.message}`;
     console.error('[ML Cupons]', erro);
   } finally {
@@ -1047,6 +1164,8 @@
       tentativasDeClique: estado.cliques,
       ativacoesConfirmadas: estado.confirmados,
       ativacoesInconclusivas: estado.inconclusivos,
+      recusasHttp: estado.recusados,
+      ultimoHttp: estado.ultimoHttp,
       ignorados: estado.ignorados,
       ultimaPaginaConcluida: progresso.ultimaConcluida,
       paginaPendente: progresso.paginaPendente,
