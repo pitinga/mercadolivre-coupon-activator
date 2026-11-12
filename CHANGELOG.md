@@ -4,6 +4,31 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 
 O versionamento deste repositório começa em `0.1.0`, independentemente da numeração de versão presente nos comentários internos do Gist original.
 
+## [0.3.0] - Em desenvolvimento
+
+### Adicionado
+
+- Acesso **direto** à página inicial escolhida por meio de `&page=X`, sem percorrer as páginas anteriores.
+- Verificação de página por indicador de paginação ou links adjacentes; alterações textuais sozinhas não validam a navegação.
+- Espera de estabilização dos elementos de cupom e tratamento de carregamentos lentos.
+- Recuperação controlada de falhas na navegação por URL direta, sem repetir cliques em cupons.
+- Registro local do progresso, com retomada sugerida da página pendente e proteção contra reprocessar identificadores já tentados.
+- Confirmação conservadora da ativação por rótulos explícitos associados ao controle do cupom; tentativas sem evidência ficam como inconclusivas.
+- Contadores de páginas, tentativas, confirmações, inconclusivos, ignorados, falhas e tempo ativo.
+- Intervalos e tempos de espera configuráveis, além de interrupção em bloqueios e sinais de limitação do serviço.
+- Testes automatizados e workflow GitHub Actions com Node.js 24.
+
+### Alterado
+
+- Identificação dos controles restrita a cartões de cupons quando o DOM disponibiliza essa estrutura.
+- Controles com identificadores duplicados ou instáveis são ignorados, em vez de tentar inferir pela posição.
+- A retomada sem identificadores estáveis é conservadora para não repetir cliques em cupons já tentados.
+
+### Validação pendente
+
+- Teste real autenticado no Mercado Livre (dependente da sessão do usuário).
+- Confirmação dos seletores e rótulos de ativação no DOM atual.
+
 ## [0.2.0] - 2026-11-12
 
 ### Adicionado
