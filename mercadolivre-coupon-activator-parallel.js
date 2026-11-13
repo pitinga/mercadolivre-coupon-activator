@@ -25,6 +25,9 @@
   };
 
   const origem = new URL(CONFIG.url).origin;
+  const urlBase = new URL(location.href);
+  urlBase.searchParams.delete('page');
+  urlBase.hash = '';
   if (location.origin !== origem) {
     console.error('[ML Parallel] Abra a página de cupons antes de executar.');
     return;
@@ -104,7 +107,8 @@
   }
 
   function urlPagina(numero) {
-    const url = new URL(CONFIG.url);
+    // Usar a mesma lista e os mesmos filtros da aba de origem.
+    const url = new URL(urlBase.href);
     if (numero > 1) url.searchParams.set('page', String(numero));
     return url.href;
   }
@@ -383,10 +387,48 @@
   // relacionados. Nunca utilizar um texto genérico de <nav> como total.
   // Quando o fim não é demonstrável, solicitar a última página ao usuário.
   function paginaFinalConhecida(doc) {
-    const areas = [...new Set(doc.querySelectorAll(
-      '.andes-pagination, [data-testid*="pagination"], ' +
-      'nav[aria-label*="paginação"], nav[aria-label*="pagination"]'
-    ))];
+    // As classes externas variam conforme a versão responsiva do site.
+    // Em alguns layouts há somente <ul>/<li> e nenhum ".andes-pagination".
+    const raizPaginadores = [
+      '.andes-pagination', '[class*="pagination"]',
+      '[data-testid*="pagination"]', 'nav',
+      '[role="navigation"]', 'ul', 'ol'
+    ].join(',');
+    const areas = new Set();
+    for (const area of doc.querySelectorAll(raizPaginadores)) {
+      const rotulo = texto(area);
+      if (rotulo.length > 280 || !/\d/.test(rotulo)) continue;
+      if (/(?:\.{3}|…)/.test(rotulo) &&
+          /\bpr[oó]xim[oa]\b/i.test(rotulo)) {
+        areas.add(area);
+      } else if (area.querySelector(
+        'a[rel="last"],[aria-label*="ltima"],' +
+        '.andes-pagination__button--last a'
+      )) {
+        areas.add(area);
+      }
+    }
+
+    // Outra variação não usa nomes de classe relacionados a paginação.
+    // Localizar o controle "Próximo" e subir até o ancestral contendo
+    // número de página + reticências + controle de avanço.
+    const controles = doc.querySelectorAll(
+      'a,button,[role="button"],span,li'
+    );
+    for (const controle of controles) {
+      const rotulo = texto(controle);
+      if (!/^pr[oó]xim[oa](?:\s*[›»>→])?$/i.test(rotulo)) continue;
+      let ancestral = controle.parentElement;
+      for (let profundidade = 0; ancestral && profundidade < 6;
+           profundidade++, ancestral = ancestral.parentElement) {
+        const valor = texto(ancestral);
+        if (valor.length > 280) break;
+        if (/(?:\.{3}|…)/.test(valor) && /\d/.test(valor) &&
+            /\bpr[oó]xim[oa]\b/i.test(valor)) {
+          areas.add(ancestral);
+        }
+      }
+    }
     function numeroValido(numero) {
       return Number.isSafeInteger(numero) &&
         numero >= CONFIG.paginaInicial && numero <= CONFIG.limiteMaximoPaginas;
@@ -508,8 +550,19 @@
     } finally {
       window.scrollTo(scrollAnterior.x, scrollAnterior.y);
     }
-    console.warn('[ML Parallel] A aba principal não expôs uma última página ' +
-      'verificável; informe o total manualmente ou aumente a largura da janela.');
+    const candidatos = [...document.querySelectorAll(
+      '[class*="pagination"],nav,ul,ol,[role="navigation"]'
+    )].map(el => ({
+      elemento: el.tagName?.toLowerCase(),
+      classe: typeof el.className === 'string' ? el.className.slice(0, 100) : '',
+      rotulo: texto(el).slice(0, 160)
+    })).filter(x => /pr[oó]xim[oa]/i.test(x.rotulo) && /\d/.test(x.rotulo))
+      .slice(0, 8);
+    console.warn('[ML Parallel] Diagnóstico de paginação não reconhecida:', {
+      url: location.href,
+      larguraViewport: window.innerWidth,
+      candidatos
+    });
     return null;
   }
 
@@ -779,20 +832,27 @@
       numeroBlocos: estado.blocos.length,
       numeroProcessos: Math.min(CONFIG.numeroProcessos, estado.blocos.length)
     });
-    estado.chaveRegistro = 'ml-coupon-activator:parallel:v1:' +
+    // Evitar retomar cupons de uma listagem com filtros diferentes.
+    const filtroAtual = new URL(urlBase.href);
+    filtroAtual.searchParams.sort();
+    const origemFiltro = filtroAtual.pathname + filtroAtual.search;
+    estado.chaveRegistro = 'ml-coupon-activator:parallel:v2:' +
+      encodeURIComponent(origemFiltro) + ':' +
       CONFIG.paginaInicial + '-' + paginaFinal + ':' + estado.blocos.length;
 
     let registroAnterior = null;
     try { registroAnterior = JSON.parse(localStorage.getItem(estado.chaveRegistro) || 'null'); }
     catch (_) {}
     estado.registro = registroAnterior &&
-      registroAnterior.versao === 'parallel-v1' &&
+      registroAnterior.versao === 'parallel-v2' &&
+      registroAnterior.origemFiltro === origemFiltro &&
       registroAnterior.paginaInicial === CONFIG.paginaInicial &&
       registroAnterior.paginaFinal === paginaFinal &&
       registroAnterior.blocos === estado.blocos.length &&
       registroAnterior.paginas && typeof registroAnterior.paginas === 'object'
       ? registroAnterior
-      : { versao: 'parallel-v1', paginaInicial: CONFIG.paginaInicial,
+      : { versao: 'parallel-v2', origemFiltro,
+          paginaInicial: CONFIG.paginaInicial,
           paginaFinal, blocos: estado.blocos.length, paginas: {} };
 
     // Nunca redimensionar a página antes de obter o total.
@@ -806,6 +866,7 @@
       processos: trabalhadores.length,
       intervaloGlobalCliquesMs: CONFIG.intervaloGlobalCliquesMs,
       intervaloGlobalNavegacoesMs: CONFIG.intervaloGlobalNavegacoesMs,
+      urlDaListagem: urlBase.href,
       faixas: estado.blocos.map(x => ({ bloco: x.id, de: x.inicio, ate: x.fim }))
     });
     atualizar();
