@@ -492,3 +492,94 @@ test('diagnóstico da paginação informa URL, largura e candidatos', () => {
   assert.match(script, /larguraViewport: window\.innerWidth/);
   assert.match(script, /candidatos/);
 });
+
+
+// Modelo reduzido do HTML entregue pelo usuário. Os números 111 e 93
+// são exemplos de listas diferentes. Nenhum token ou dado de sessão é usado.
+function modeloAndes({ ultima = 111, filtro = 'all=true', mostrarDots = true,
+  urlFinal = null, ariaFinal = null, dominioFinal = null } = {}) {
+  const base = 'https://www.mercadolivre.com.br/cupons/filter';
+  const hrefFinal = urlFinal || (dominioFinal || base) +
+    '?' + filtro + '&page=' + ultima;
+  const primeiro = {
+    innerText: '1',
+    getAttribute(nome) {
+      if (nome === 'href') return base + '?' + filtro + '&page=1';
+      if (nome === 'aria-label') return 'Vá para a página 1';
+      return null;
+    }
+  };
+  const ultimo = {
+    innerText: String(ultima),
+    getAttribute(nome) {
+      if (nome === 'href') return hrefFinal;
+      if (nome === 'aria-label') return ariaFinal ?? 'Vá para a página ' + ultima;
+      return null;
+    }
+  };
+  const ul = {
+    // No DOM verdadeiro as reticências são <li> com três <i>.
+    // O texto do paginador não tem nem "..." nem "…".
+    innerText: 'Anterior 1 2 3 4 5 6 7 8 9 ' + ultima + ' Próximo',
+    textContent: 'Anterior 1 2 3 4 5 6 7 8 9 ' + ultima + ' Próximo',
+    querySelectorAll(seletor) {
+      if (seletor === 'a[data-andes-pagination-item="true"]')
+        return [primeiro, ultimo];
+      if (seletor === 'li.andes-pagination__dots + li a[data-andes-pagination-item="true"]')
+        return mostrarDots ? [ultimo] : [];
+      return [];
+    },
+    querySelector() { return null; }
+  };
+  return {
+    location: { href: base + '?' + filtro },
+    querySelectorAll(seletor) {
+      if (seletor === 'ul[data-andes-pagination="true"],ul.andes-pagination')
+        return [ul];
+      if (seletor.includes('.andes-pagination')) return [ul];
+      return [];
+    }
+  };
+}
+
+test('DOM real: dots em <li><i> sem reticências textuais detecta 111', () => {
+  const doc = modeloAndes({ ultima: 111 });
+  const area = doc.querySelectorAll('ul[data-andes-pagination="true"],ul.andes-pagination')[0];
+  assert.doesNotMatch(area.textContent, /\.{3}|…/);
+  assert.equal(extrairDetectorFinal()(doc), 111);
+  assert.equal(extrairDivisao()(1, 111, 10).length, 10);
+});
+
+test('DOM real: última página 93 em listagem com status=inactive', () => {
+  const doc = modeloAndes({
+    ultima: 93, filtro: 'status=inactive&all=true'
+  });
+  assert.equal(extrairDetectorFinal()(doc), 93);
+  assert.equal(extrairDivisao()(1, 93, 10).length, 10);
+});
+
+test('DOM real: sem li de reticências não toma último link como total', () => {
+  assert.equal(extrairDetectorFinal()(modeloAndes({
+    ultima: 9, mostrarDots: false
+  })), null);
+});
+
+test('DOM real: rejeita número diferente entre href e rótulo', () => {
+  assert.equal(extrairDetectorFinal()(modeloAndes({
+    ultima: 93,
+    urlFinal: 'https://www.mercadolivre.com.br/cupons/filter?all=true&page=92'
+  })), null);
+});
+
+test('DOM real: rejeita aria-label discordante com página final', () => {
+  assert.equal(extrairDetectorFinal()(modeloAndes({
+    ultima: 93, ariaFinal: 'Vá para a página 92'
+  })), null);
+});
+
+test('DOM real: não confia em links externos na paginação', () => {
+  assert.equal(extrairDetectorFinal()(modeloAndes({
+    ultima: 93,
+    dominioFinal: 'https://exemplo.invalid/cupons/filter'
+  })), null);
+});
