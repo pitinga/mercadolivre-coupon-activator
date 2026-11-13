@@ -29,7 +29,6 @@
     timeoutMudancaPaginaMs: 16000,
     intervaloVerificacaoMs: 250,
     maxTentativasNavegacao: 2,
-    maxRespostasInconclusivasConsecutivas: 3,
     maxFalhasHttpConsecutivas: 2
   };
 
@@ -170,7 +169,6 @@
     cliques: 0,
     confirmados: 0,
     inconclusivos: 0,
-    inconclusivosConsecutivos: 0,
     recusados: 0,
     falhasHttpConsecutivas: 0,
     ultimoHttp: null,
@@ -855,35 +853,60 @@
     return candidatos.length === 1 ? candidatos[0] : null;
   }
 
-  // A confirmação precisa estar vinculada ao botão/cartão do item.
-  // Não usar toasts globais nem o simples desaparecimento do botão.
-  function cupomConfirmado(item) {
-    let candidatos = [];
+  // Evidências de sucesso devem pertencer ao cupom acionado.
+  // Textos como "Conferir" são aceitos apenas quando surgirem
+  // APÓS um clique, no próprio controle ou no cartão correspondente.
+  function rotuloSucesso(rotulo) {
+    return /^(?:ativad[oa]|resgatad[oa]|cupom\s+aplicad[oa]|aplicad[oa]|cupom\s+resgatad[oa]|conferir(?:\s+(?:cupom|oferta))?|ver\s+(?:(?:meu|o)\s+)?cupom)(?:\s*[!.])?$/i
+      .test(String(rotulo || '').trim().replace(/\s+/g, ' '));
+  }
+
+  function rotulosElemento(el) {
+    return [
+      texto(el),
+      el.getAttribute?.('aria-label'),
+      el.getAttribute?.('title')
+    ].filter(Boolean).map(valor => String(valor).trim());
+  }
+
+  function elementosMesmoCupom(item) {
+    const candidatos = [];
     if (item.elemento.isConnected &&
         (!item.chave || chaveCupom(item.elemento) === item.chave)) {
       candidatos.push(item.elemento);
     }
 
+    // Se o botão for substituído pelo React, procurar somente
+    // o mesmo identificador ou o cartão original ainda conectado.
     if (item.chave) {
-      const doc = documento();
-      for (const el of doc.querySelectorAll('button, a, [role="button"]')) {
+      for (const el of documento().querySelectorAll('button, a, [role="button"]')) {
         if (el.isConnected && chaveCupom(el) === item.chave) {
           candidatos.push(el);
         }
       }
+    } else if (item.cartao?.isConnected) {
+      for (const el of item.cartao.querySelectorAll('button, a, [role="button"]')) {
+        if (el.isConnected) candidatos.push(el);
+      }
     }
 
-    return [...new Set(candidatos)].some(el => {
-      const rotulos = [
-        texto(el),
-        el.getAttribute('aria-label'),
-        el.getAttribute('title')
-      ].filter(Boolean);
-      return rotulos.some(rotulo =>
-        /^(?:ativad[oa]|resgatad[oa]|cupom aplicad[oa]|aplicad[oa]|cupom resgatado)(?:\b|$)/i
-          .test(rotulo)
-      );
-    });
+    return [...new Set(candidatos)];
+  }
+
+  function rotulosDeSucesso(item) {
+    return new Set(
+      elementosMesmoCupom(item)
+        .flatMap(rotulosElemento)
+        .filter(rotuloSucesso)
+    );
+  }
+
+  function cupomConfirmado(item) {
+    // Só considerar um sinal de sucesso que NÃO existia antes do clique.
+    for (const rotulo of rotulosDeSucesso(item)) {
+      if (!item.rotulosAntes?.has(rotulo)) return true;
+    }
+    return false;
   }
 
   async function aguardarConfirmacao(item, marco) {
@@ -931,6 +954,7 @@
 
     const itens = botoes.map(elemento => ({
       elemento,
+      cartao: elemento.closest(seletorCartao),
       chave: chaveCupom(elemento)
     }));
     const contagem = new Map();
@@ -989,6 +1013,9 @@
       // Uma mensagem de erro antiga também bloqueia novas ativações.
       verificarBloqueios(documento());
 
+      // Registra sinais de sucesso que já existiam, evitando falsos positivos.
+      item.rotulosAntes = rotulosDeSucesso(item);
+
       // Registrar antes de clicar para proteger a retomada após falhas.
       registrarTentativa(item);
       try {
@@ -1002,16 +1029,14 @@
 
         if (resultado.tipo === 'confirmado') {
           estado.confirmados++;
-          estado.inconclusivosConsecutivos = 0;
           estado.falhasHttpConsecutivas = 0;
         } else if (resultado.tipo === 'recusado') {
           estado.recusados++;
           estado.falhas++;
           estado.falhasHttpConsecutivas++;
-          estado.inconclusivosConsecutivos = 0;
         } else {
+          // A ausência de texto de sucesso não é uma falha.
           estado.inconclusivos++;
-          estado.inconclusivosConsecutivos++;
           estado.falhasHttpConsecutivas = 0;
         }
 
@@ -1019,20 +1044,13 @@
           `Item ${i + 1}/${itens.length}: ` +
           (resultado.tipo === 'confirmado' ? 'ativação confirmada.' :
            resultado.tipo === 'recusado' ? `recusado (HTTP ${resultado.http}).` :
-            'sem confirmação individual.')
+            'tentativa realizada; ativação não verificável pela interface.')
         );
 
         if (estado.falhasHttpConsecutivas >= CONFIG.maxFalhasHttpConsecutivas) {
           throw erroInterrupcao(
             `${estado.falhasHttpConsecutivas} recusas HTTP consecutivas. ` +
             'Execução interrompida para não insistir nas ativações.'
-          );
-        }
-        if (estado.inconclusivosConsecutivos >=
-            CONFIG.maxRespostasInconclusivasConsecutivas) {
-          throw erroInterrupcao(
-            `${estado.inconclusivosConsecutivos} tentativas consecutivas sem confirmação. ` +
-            'Interrompido para revisão do resultado das ativações.'
           );
         }
       } catch (erro) {
