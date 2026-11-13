@@ -4,6 +4,22 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 
 O versionamento deste repositório começa em `0.1.0`, independentemente da numeração de versão presente nos comentários internos do Gist original.
 
+## [0.3.1] - 2026-11-13
+
+### Corrigido
+
+- Corrigido falso negativo no carregamento de páginas que mostram apenas cupons já ativados (botões **Conferir** ou **Ver cupom**) e cujos cartões não correspondem aos seletores HTML conhecidos.
+- A confirmação da página e a confirmação do conteúdo carregado passam a ser verificações separadas. O script exige um indicador de paginação confiável, conteúdo reconhecível e estabilização, sem depender da presença de botões **Ativar**.
+- Ampliados os seletores do número de página ativo para incluir `aria-selected="true"` e variantes de classe do componente de paginação.
+- Adicionados diagnósticos quando a página não é confirmada no prazo: URL, página solicitada/selecionada, cartões reconhecidos, botões Ativar/Conferir e estado de carregamento.
+- A execução preserva a política de **não repetir cliques** nem ignorar falhas HTTP explícitas.
+
+### Validação
+
+- Testes simulados para página 83 contendo apenas botões Conferir, divergência de número selecionado e spinner ainda ativo.
+- **Teste real de ponta a ponta da 0.3.1 ainda não realizado**. A versão 0.3.0 permanece preservada pela tag Git.
+- O progresso salvo na chave da 0.3.0 continua compatível.
+
 ## [0.3.0] - 2026-11-13
 
 ### Adicionado
