@@ -35,13 +35,13 @@ test('parâmetros iniciais são 10 blocos e 5 processos', () => {
   assert.equal(conf.paginaFinal, null);
 });
 
-test('intervalos globais conservadores para o experimento', () => {
+test('parâmetros atuais recuperados da branch: intervalos personalizados de 250 ms', () => {
   const conf = config();
-  assert.equal(conf.intervaloGlobalCliquesMs, 1500);
+  assert.equal(conf.intervaloGlobalCliquesMs, 250);
   assert.equal(conf.esperaAposCliqueMs, 2000);
-  assert.equal(conf.intervaloGlobalNavegacoesMs, 2000);
-  assert.equal(conf.esperaAposPaginaMs, 1500);
-  assert.equal(conf.esperaConfirmacaoMs, 3000);
+  assert.equal(conf.intervaloGlobalNavegacoesMs, 250);
+  assert.equal(conf.esperaAposPaginaMs, 2000);
+  assert.equal(conf.esperaConfirmacaoMs, 2000);
   assert.equal(conf.timeoutPaginaMs, 45000);
 });
 
@@ -133,17 +133,17 @@ test('a confirmação ocorre fora da fila global sem bloquear outros trabalhador
     async ms => { tempo += ms; return true; }
   );
   const instantes = [];
-  const a = agendar('clique', 1500, () => {
+  const a = agendar('clique', 250, () => {
     instantes.push(tempo);
     return { worker: 1 };
   });
-  const b = agendar('clique', 1500, () => {
+  const b = agendar('clique', 250, () => {
     instantes.push(tempo);
     return { worker: 2 };
   });
   assert.equal((await a).worker, 1);
   assert.equal((await b).worker, 2);
-  assert.deepEqual(instantes, [0, 1500]);
+  assert.deepEqual(instantes, [0, 250]);
 });
 
 test('mínimo pós-clique de 2s considera a espera já gasta na confirmação', () => {
@@ -151,4 +151,49 @@ test('mínimo pós-clique de 2s considera a espera já gasta na confirmação', 
   assert.match(script, /restanteAposClique > 0 && !\(await esperar\(restanteAposClique\)\)/);
   assert.doesNotMatch(script, /CONFIG\.intervaloAposCliqueMs/);
   assert.match(script, /const resultado = await confirmarClique\([\s\S]+?restanteAposClique/);
+});
+
+function extrairValidador() {
+  const match = script.match(/  function validarConfig\(config\) \{[\s\S]+?\n  }\n\n  const errosConfig/);
+  assert.ok(match, 'Validador de configuração não encontrado');
+  const trecho = match[0].replace(/\n\n  const errosConfig$/, '');
+  return new Function(trecho + '\nreturn validarConfig;')();
+}
+
+test('CONFIG atual com 250 ms é aceito pelo mesmo validador do script', () => {
+  const erros = extrairValidador()(config());
+  assert.deepEqual(erros, []);
+});
+
+test('intervalos de 250 ms não desativam alerta de pressão sobre o site', () => {
+  assert.match(script, /CONFIG\.intervaloGlobalCliquesMs < 1500/);
+  assert.match(script, /CONFIG\.intervaloGlobalNavegacoesMs < 500/);
+  assert.match(script, /Intervalos globais agressivos/);
+  assert.match(script, /console\.warn\('\[ML Parallel\] Intervalos globais agressivos/);
+});
+
+test('CONFIG inválido informa especificamente os campos incorretos', () => {
+  const validar = extrairValidador();
+  const c = config();
+  c.intervaloGlobalCliquesMs = 0;
+  c.intervaloGlobalNavegacoesMs = -1;
+  c.numeroProcessos = 21;
+  const erros = validar(c);
+  assert.ok(erros.some(x => x.startsWith('intervaloGlobalCliquesMs:')));
+  assert.ok(erros.some(x => x.startsWith('intervaloGlobalNavegacoesMs:')));
+  assert.ok(erros.some(x => x.startsWith('numeroProcessos:')));
+  assert.equal(erros.length, 3);
+});
+
+test('intervalos continuam parametrizáveis (1, 250 e 1500 ms)', () => {
+  const validar = extrairValidador();
+  for (const valor of [1, 250, 1500]) {
+    const c = config();
+    c.intervaloGlobalCliquesMs = valor;
+    c.intervaloGlobalNavegacoesMs = valor;
+    assert.deepEqual(validar(c), []);
+  }
+  const c = config();
+  c.intervaloGlobalCliquesMs = 1.5;
+  assert.ok(validar(c).some(x => x.includes('intervaloGlobalCliquesMs')));
 });
