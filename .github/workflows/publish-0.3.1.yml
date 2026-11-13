@@ -1,0 +1,63 @@
+name: Publish 0.3.1 release (one-time)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-0.3.1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create immutable tag 0.3.1
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha='a2cf0f797c562e62919ef9b42be120b15f78177f'
+          if existing="$(gh api "repos/$GH_REPO/git/ref/tags/0.3.1" --jq '.object.sha' 2>/dev/null)"; then
+            if [ "$existing" != "$sha" ]; then
+              echo "Tag 0.3.1 already exists at different SHA ($existing). Refusing to move it." >&2
+              exit 1
+            fi
+            echo "Tag already correct."
+          else
+            gh api -X POST "repos/$GH_REPO/git/refs" -f 'ref=refs/tags/0.3.1' -f "sha=$sha" --jq '.ref'
+          fi
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'RELEASE_NOTES'
+          # Mercado Livre Coupon Activator 0.3.1
+          
+          **Correção de paginação** (13/11/2026).
+          
+          ## Correções
+          - Páginas que exibem somente cupons já ativados com **Conferir** ou **Ver cupom** agora podem ser reconhecidas como carregadas, mesmo sem botões **Ativar** e sem os seletores antigos de cartão.
+          - Confirmação da página e estabilização do conteúdo são verificadas separadamente; a execução não aceita numeração divergente nem spinner ainda ativo.
+          - Mais seletores de paginação e logs diagnósticos (URL, número esperado/selecionado, quantidades de cartões e controles, carregamento) quando há timeout.
+          - Mantida a chave de progresso da 0.3.0, permitindo retomada da página pendente sem repetir tentativas registradas.
+          
+          ## Validação
+          - **23 testes automatizados aprovados** no Node.js 24, incluindo três cenários de regressão.
+          - O teste funcional autenticado desta correção **ainda precisa ser realizado**. A versão 0.3.0 anterior permanece disponível.
+          
+          Este é um projeto independente, sem afiliação oficial ao Mercado Livre.
+          RELEASE_NOTES
+          if gh release view '0.3.1' >/dev/null 2>&1; then
+            echo 'Release 0.3.1 exists; leaving it unchanged.'
+          else
+            gh release create '0.3.1' --verify-tag --title 'Mercado Livre Coupon Activator 0.3.1' --notes-file release-notes.md
+          fi
