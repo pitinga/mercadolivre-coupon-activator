@@ -30,7 +30,7 @@
     return;
   }
   // Permitir intervalos configuráveis menores que os valores sugeridos.
-  // Validar apenas o tipo/faixa; intervalos agressivos geram aviso, não bloqueio.
+  // Validar apenas o tipo e a faixa, sem avisos para intervalos baixos.
   function validarConfig(config) {
     const erros = [];
     const inteiroEntre = (nome, minimo, maximo = Number.MAX_SAFE_INTEGER) => {
@@ -697,7 +697,7 @@
       if (clique.ignorado) continue;
 
       // Cada trabalhador aguarda/valida seu próprio clique independentemente;
-      // a fila global já pode autorizar outro trabalhador após 1,5 segundo.
+      // a fila global libera outro trabalhador após o intervalo configurado.
       const resultado = await confirmarClique(trabalhador, item, clique.marco);
       if (resultado === 'confirmado') estado.confirmados++;
       else if (resultado === 'inconclusivo') estado.inconclusivos++;
