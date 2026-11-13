@@ -10,7 +10,7 @@ const script = fs.readFileSync(
   path.join(__dirname, '..', 'mercadolivre-coupon-activator.js'), 'utf8'
 );
 
-async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRenderizada = null, httpStatus = null, mensagemErro = null }) {
+async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRenderizada = null, httpStatus = null, mensagemErro = null, cartoesSemSeletor = false, sempreCarregando = false }) {
   const storage = new Map();
   const storageKey = 'ml-coupon-activator:progress:0.3.0';
   if (salvo) storage.set(storageKey, JSON.stringify(salvo));
@@ -21,6 +21,7 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
   const recursos = [];
   let avisoAtivacao = '';
   let resumo = null;
+  const avisos = [];
 
   function elemento(textContent = '', atributos = {}) {
     const obj = {
@@ -83,6 +84,7 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
       querySelector(seletor) {
         if (seletor === '.andes-pagination [aria-current="page"]') return atual;
         if (seletor === 'main') return principal;
+        if (seletor.includes('[aria-busy="true"]') && sempreCarregando) return elemento('Carregando...');
         return null;
       },
       querySelectorAll(seletor) {
@@ -91,7 +93,7 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
           aviso.ownerDocument = doc;
           return [aviso];
         }
-        if (seletor.includes('[data-testid*="coupon-card"]')) return listaCards;
+        if (seletor.includes('[data-testid*="coupon-card"]')) return cartoesSemSeletor ? [] : listaCards;
         if (seletor === 'button, a, [role="button"]') return listaBotoes;
         return [];
       }
@@ -142,7 +144,7 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
     },
     console: {
       log(...args) { if (args[0] === '[ML Cupons] RESUMO:') resumo = args[1]; },
-      warn() {}, error() {}
+      warn(...args) { avisos.push(args); }, error() {}
     },
     prompt(mensagem, padrao) { return pagina === undefined ? padrao : pagina; },
     setTimeout(callback, ms) {
@@ -156,7 +158,7 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
 
   await vm.runInNewContext(script, contexto, { timeout: 2000 });
   return {
-    resumo, cliques, fontes,
+    resumo, cliques, fontes, avisos,
     progresso: JSON.parse(storage.get(storageKey) || 'null')
   };
 }
@@ -319,4 +321,51 @@ test('estado final sem rótulo de sucesso continua inconclusivo sem falha', asyn
   assert.equal(run.resumo.ativacoesConfirmadas, 0);
   assert.equal(run.resumo.ativacoesInconclusivas, 1);
   assert.equal(run.resumo.falhas, 0);
+});
+
+test('página 83 com somente Conferir e sem seletores de cartão conhecidos é válida', async () => {
+  const run = await executar({
+    pagina: '83',
+    cartoesSemSeletor: true,
+    cartoes: [
+      {id:'ATIVADO-A', rotuloInicial:'Conferir'},
+      {id:'ATIVADO-B', rotuloInicial:'Conferir'},
+      {id:'ATIVADO-C', rotuloInicial:'Conferir'}
+    ]
+  });
+  assert.equal(run.fontes.length, 1);
+  assert.equal(new URL(run.fontes[0]).searchParams.get('page'), '83');
+  assert.equal(run.resumo.paginasConcluidas, 1);
+  assert.equal(run.resumo.ultimaPagina, 83);
+  assert.equal(run.resumo.tentativasDeClique, 0);
+  assert.equal(run.resumo.falhas, 0);
+  assert.equal(run.progresso.ultimaConcluida, 83);
+});
+
+test('pagina 83 não é aceita quando indicador selecionado ainda mostra 82', async () => {
+  const run = await executar({
+    pagina: '83',
+    paginaRenderizada: 82,
+    cartoesSemSeletor: true,
+    cartoes: [{id:'ATIVADO', rotuloInicial:'Conferir'}]
+  });
+  assert.equal(run.resumo.paginasConcluidas, 0);
+  assert.equal(run.resumo.falhas, 1);
+  assert.equal(run.resumo.tentativasDeClique, 0);
+  assert.ok(run.avisos.some(args =>
+    String(args[0]).includes('Diagnóstico: página não confirmada')
+  ));
+});
+
+test('página com spinner ativo não é considerada pronta', async () => {
+  const run = await executar({
+    pagina: '83',
+    cartoesSemSeletor: true,
+    sempreCarregando: true,
+    cartoes: [{id:'ATIVADO', rotuloInicial:'Conferir'}]
+  });
+  assert.equal(run.resumo.falhas, 1);
+  assert.equal(run.resumo.paginasConcluidas, 0);
+  assert.equal(run.resumo.tentativasDeClique, 0);
+  assert.ok(run.avisos.some(args => args[1]?.carregando === true));
 });

@@ -1,4 +1,4 @@
-// Mercado Livre - Coupon Activator v0.3.0
+// Mercado Livre - Coupon Activator v0.3.1
 // Acesso direto via &page=X, painel, retomada e confirmação conservadora.
 //
 // COMO USAR
@@ -530,7 +530,10 @@
       '.andes-pagination [aria-current="page"]',
       '.andes-pagination__button--current',
       '.andes-pagination__button--selected',
+      '.andes-pagination [aria-selected="true"]',
+      '.andes-pagination [class*="--current"]',
       '[class*="pagination"] [aria-current="page"]',
+      '[class*="pagination"] [aria-selected="true"]',
       '[aria-current="page"]'
     ];
 
@@ -680,43 +683,126 @@
     return null;
   }
 
+  // "Conferir" indica que um cupom já foi ativado e continua na lista.
+  // Essas páginas são válidas mesmo sem botões "Ativar" ou seletores
+  // de cartão reconhecidos. A paginação, o carregamento e a
+  // estabilização do conteúdo continuam sendo obrigatórios.
+  function observarConteudoPagina(doc) {
+    const principal = doc.querySelector('main') || doc.body;
+    const textoPrincipal = texto(principal);
+    const cartoes = [...doc.querySelectorAll(seletorCartao)]
+      .filter(el => el.getClientRects().length > 0);
+
+    const controles = [...doc.querySelectorAll('button, a, [role="button"]')]
+      .filter(el => el.getClientRects().length > 0);
+    const conferir = controles.filter(el =>
+      /^(?:conferir|ver\s+(?:(?:meu|o)\s+)?cupom)(?:\s+(?:cupom|oferta))?$/i
+        .test(texto(el))
+    );
+    const ativaveis = botoesDeCupons();
+    const vazio = /nenhum cupom|sem cupons|n[aã]o encontramos cupons/i
+      .test(textoPrincipal);
+    const conteudoDeOferta = /(?:\d+(?:[,.]\d+)?\s*%\s*OFF|R\$\s*\d+(?:[,.]\d+)?\s*OFF|compra\s+m[ií]nima)/i
+      .test(textoPrincipal);
+    const carregando = Boolean(doc.querySelector(
+      '[aria-busy="true"], [role="progressbar"], .andes-spinner'
+    ));
+    return {
+      cartoes: cartoes.length,
+      ativaveis: ativaveis.length,
+      conferir: conferir.length,
+      vazio,
+      conteudoDeOferta,
+      carregando,
+      textoEstavel: textoPrincipal.slice(0, 500)
+    };
+  }
+
   async function aguardarPagina(esperada, timeoutMs) {
     const inicio = tempoAtivo();
     let assinatura = '';
     let estavelDesde = null;
+    let ultimo = { etapa: 'aguardando documento', esperada };
 
     while (!estado.encerrado && tempoAtivo() - inicio < timeoutMs) {
       if (!(await esperar(CONFIG.intervaloVerificacaoMs))) return false;
       let doc;
-      try { doc = documento(); } catch (_) { continue; }
-      if (doc.readyState === 'loading') continue;
+      try { doc = documento(); } catch (erro) {
+        ultimo = { etapa: 'documento indisponível', erro: erro.message, esperada };
+        continue;
+      }
+      const selecionada = numeroPagina(doc);
+      const paginaUrl = paginaDaUrl(doc);
+      if (doc.readyState === 'loading') {
+        ultimo = { etapa: 'documento carregando', esperada, selecionada, paginaUrl };
+        continue;
+      }
+
       verificarBloqueios(doc);
-      if (!paginaConfirmada(doc, esperada)) continue;
+      if (!paginaConfirmada(doc, esperada)) {
+        ultimo = {
+          etapa: 'paginação não confirmada',
+          esperada, selecionada, paginaUrl, url: doc.location.href
+        };
+        continue;
+      }
 
-      const cartoes = [...doc.querySelectorAll(seletorCartao)]
-        .filter(el => el.getClientRects().length > 0);
-      const botoes = botoesDeCupons();
-      const principal = doc.querySelector('main');
-      const vazio = /nenhum cupom|sem cupons|n[aã]o encontramos cupons/i
-        .test(texto(principal || doc.body));
-      const carregando = doc.querySelector(
-        '[aria-busy="true"], [role="progressbar"], .andes-spinner'
-      );
-      if (carregando || (!cartoes.length && !botoes.length && !vazio)) continue;
+      const observacao = observarConteudoPagina(doc);
+      ultimo = {
+        etapa: 'conteúdo sendo verificado',
+        esperada, selecionada, paginaUrl,
+        url: doc.location.href,
+        cartoes: observacao.cartoes,
+        ativaveis: observacao.ativaveis,
+        conferir: observacao.conferir,
+        listaVazia: observacao.vazio,
+        conteudoDeOferta: observacao.conteudoDeOferta,
+        carregando: observacao.carregando
+      };
 
+      const conteudoValido =
+        observacao.cartoes > 0 ||
+        observacao.ativaveis > 0 ||
+        observacao.conferir > 0 ||
+        observacao.vazio ||
+        observacao.conteudoDeOferta;
+
+      if (observacao.carregando || !conteudoValido) {
+        assinatura = '';
+        estavelDesde = null;
+        continue;
+      }
+
+      // Verificar estabilidade também em páginas sem botões de ativação.
       const nova = JSON.stringify([
-        paginaDaUrl(doc), numeroPagina(doc), cartoes.length, botoes.length
+        paginaUrl, selecionada, observacao.cartoes,
+        observacao.ativaveis, observacao.conferir,
+        observacao.vazio, observacao.conteudoDeOferta,
+        observacao.textoEstavel
       ]);
       if (nova !== assinatura) {
         assinatura = nova;
         estavelDesde = tempoAtivo();
         continue;
       }
+
       if (estavelDesde !== null &&
           tempoAtivo() - estavelDesde >= CONFIG.esperaAposPaginaMs) {
         registrarTeclaNoFrame();
+        console.log('[ML Cupons] Página validada:', {
+          esperada, paginaSelecionada: selecionada, paginaUrl,
+          cartoes: observacao.cartoes, paraAtivar: observacao.ativaveis,
+          jaAtivados: observacao.conferir
+        });
         return true;
       }
+    }
+
+    if (!estado.encerrado) {
+      console.warn(
+        '[ML Cupons] Diagnóstico: página não confirmada no prazo.',
+        ultimo
+      );
     }
     return false;
   }
