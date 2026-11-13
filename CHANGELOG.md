@@ -28,9 +28,17 @@ O versionamento deste repositório começa em `0.1.0`, independentemente da nume
 
 - Interrupção imediata quando a ativação recebe **HTTP 401, 403 ou 429**, se o navegador disponibiliza o status da resposta.
 - Detecção de aviso **“Tivemos um problema”** e mensagens semelhantes na interface, interrompendo sem exigir leitura da resposta HTTP.
-- Proteções adicionais contra sequências de falhas HTTP e ativações inconclusivas.
+- Proteção contra sequências de falhas HTTP; tentativas inconclusivas não são motivo de interrupção.
 - Correção da contagem de falhas para evitar duplicações.
 - Testes de regressão simulados para HTTP 403, HTTP 429, HTTP 500, aviso de erro e tentativas inconclusivas.
+
+### Corrigido após testes de novembro de 2026 (falsos inconclusivos)
+
+- Removida a interrupção por três ativações consecutivas sem confirmação, pois a interface pode ativar cupons sem expor os rótulos reconhecidos pelo script.
+- Novos rótulos de sucesso: `Conferir` e `Ver cupom`, desde que apareçam no controle do **mesmo** cupom após o clique.
+- Os estados preexistentes antes do clique não contam como confirmação.
+- Tentativas não verificáveis continuam sendo exibidas como **inconclusivas**, sem interromper a paginação nem aumentar a contagem de erros.
+- Testes simulados para múltiplos inconclusivos e mudanças de rótulo.
 
 ### Validação pendente
 
