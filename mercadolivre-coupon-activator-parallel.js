@@ -9,9 +9,9 @@
     numeroProcessos: 5,
     paginaInicial: 1,
     paginaFinal: null, // null: detectar última página; solicitar número se não conseguir
-    intervaloGlobalCliquesMs: 4000,
+    intervaloGlobalCliquesMs: 1500,
     intervaloGlobalNavegacoesMs: 2000,
-    esperaAposCliqueMs: 800,
+    esperaAposCliqueMs: 2000,
     esperaConfirmacaoMs: 3000,
     esperaAposPaginaMs: 1500,
     intervaloVerificacaoMs: 250,
@@ -106,8 +106,9 @@
     return false;
   }
 
-  // Uma fila compartilhada evita que os cinco trabalhadores iniciem cliques
-  // simultâneos. A confirmação termina antes de liberar o próximo clique.
+  // Uma fila compartilhada espaça globalmente os INÍCIOS dos cliques.
+  // A verificação e a espera pós-clique ocorrem em cada trabalhador,
+  // fora dessa fila. Assim, o intervalo global não vira 3–5 segundos.
   function agendar(tipo, intervalo, acao) {
     const operacao = estado.filas[tipo].then(async () => {
       if (!(await aguardarAtivo())) return null;
@@ -508,8 +509,8 @@
           .filter(rotuloConfirmado).map(texto)
       );
 
-      const outcome = await agendar('clique', CONFIG.intervaloGlobalCliquesMs, async () => {
-        if (estado.encerrado || !(await aguardarAtivo())) return null;
+      const clique = await agendar('clique', CONFIG.intervaloGlobalCliquesMs, () => {
+        if (estado.encerrado) return null;
         const docAtual = obterDocumento(trabalhador.frame);
         if (!paginaCorreta(docAtual, pagina))
           throw new Error('Página mudou antes de ativar cupom: ' + pagina);
@@ -518,26 +519,50 @@
         if (!atual) {
           estado.ignorados++;
           atualizar();
-          return 'ignorado';
+          return { ignorado: true };
         }
-        // Estado persistido ANTES do clique para não repetir em retomadas.
+
+        // Confirmar estado anterior no instante do clique, após a espera global.
+        item.elemento = atual;
+        item.sinaisAnteriores = new Set(
+          [atual, ...(item.cartao?.isConnected
+            ? item.cartao.querySelectorAll(seletorControles) : [])]
+            .filter(rotuloConfirmado).map(texto)
+        );
+
+        // Persistir ANTES do clique para impedir duplicação na retomada.
         if (item.chave && !salvo.ids.includes(item.chave)) salvo.ids.push(item.chave);
         else if (!item.chave) salvo.semIdTentado = true;
         salvar();
 
-        item.elemento = atual;
         const perf = trabalhador.frame.contentWindow?.performance;
         const marco = perf?.now?.() ?? null;
+        const momentoClique = ativoMs();
         atual.click();
         estado.cliques++;
-        const resultado = await confirmarClique(trabalhador, item, marco);
-        if (resultado === 'confirmado') estado.confirmados++;
-        else if (resultado === 'inconclusivo') estado.inconclusivos++;
         atualizar();
-        if (!(await esperar(CONFIG.intervaloAposCliqueMs))) return null;
-        return resultado;
+        return { marco, momentoClique };
       });
-      if (outcome === null && estado.encerrado) return;
+
+      if (clique === null) {
+        if (estado.encerrado) return;
+        continue;
+      }
+      if (clique.ignorado) continue;
+
+      // Cada trabalhador aguarda/valida seu próprio clique independentemente;
+      // a fila global já pode autorizar outro trabalhador após 1,5 segundo.
+      const resultado = await confirmarClique(trabalhador, item, clique.marco);
+      if (resultado === 'confirmado') estado.confirmados++;
+      else if (resultado === 'inconclusivo') estado.inconclusivos++;
+      atualizar();
+
+      // Espera MÍNIMA total de 2 s após o clique daquele trabalhador;
+      // o tempo já gasto na confirmação entra nessa conta.
+      const restanteAposClique =
+        CONFIG.esperaAposCliqueMs - (ativoMs() - clique.momentoClique);
+      if (restanteAposClique > 0 && !(await esperar(restanteAposClique))) return;
+
     }
     if (estado.encerrado) return;
     salvo.concluida = true;
