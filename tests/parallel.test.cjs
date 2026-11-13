@@ -301,3 +301,96 @@ test('sem alertas de intervalo baixo; erros HTTP continuam protegidos', () => {
   assert.doesNotMatch(script, /Intervalos globais agressivos/);
   assert.match(script, /\[401,\s*403,\s*429\]\.includes\(status\)/);
 });
+
+
+function extrairFonteDescoberta() {
+  const inicio = script.indexOf('  function paginaFinalNaAba(doc) {');
+  const fim = script.indexOf('  function criarTrabalhador(id) {', inicio);
+  assert.ok(inicio >= 0 && fim > inicio, 'Funções de descoberta de páginas ausentes');
+  return script.slice(inicio, fim);
+}
+
+test('total de 93 páginas da aba principal prevalece sobre iframe estreito', async () => {
+  const code = extrairFonteDescoberta();
+  const doc = simulacaoPaginador({ rotulos: [1,2,3,4,5,6,7,8,9,93],
+    reticencias: true });
+  doc.readyState = 'complete';
+  const detect = extrairDetectorFinal();
+  const chamadas = [];
+  const resultado = await new Function(
+    'document', 'origem', 'estado', 'raiz', 'el', 'navegar',
+    'paginaFinalConhecida', 'console', 'CONFIG', 'URL',
+    code + '\nreturn descobrirPaginaFinal;'
+  )(
+    doc, 'https://www.mercadolivre.com.br', { encerrado: false },
+    { appendChild() { throw Error('Não deveria criar sonda'); } },
+    () => { throw Error('A sonda não deveria ser criada'); },
+    () => { chamadas.push('navegação'); },
+    detect,
+    { log() {} },
+    config(),
+    URL
+  )();
+  assert.equal(resultado, 93);
+  assert.deepEqual(chamadas, []);
+  assert.equal(extrairDivisao()(1, resultado, 10).length, 10);
+});
+
+test('paginador estreito sem último número aciona sonda desktop de 1440px', async () => {
+  const code = extrairFonteDescoberta();
+  const doc = simulacaoPaginador({ rotulos: [1,2,3,4,5], reticencias: false });
+  doc.readyState = 'complete';
+  const wide = simulacaoPaginador({ rotulos: [1,2,3,4,5,6,7,93], reticencias: true });
+  let estiloSonda = null;
+  let sondaRemovida = 0;
+  let navegacoes = 0;
+  const detectar = extrairDetectorFinal();
+  const descobrir = new Function(
+    'document', 'origem', 'estado', 'raiz', 'el', 'navegar',
+    'paginaFinalConhecida', 'console', 'CONFIG', 'URL',
+    code + '\nreturn descobrirPaginaFinal;'
+  )(
+    doc, 'https://www.mercadolivre.com.br', { encerrado: false },
+    { appendChild() {} },
+    (tag, estilo) => {
+      assert.equal(tag, 'iframe');
+      estiloSonda = estilo;
+      return { remove() { sondaRemovida++; } };
+    },
+    async ({ frame }, pagina) => {
+      assert.ok(frame);
+      assert.equal(pagina, 1);
+      navegacoes++;
+      return wide;
+    },
+    detectar,
+    { log() {} },
+    config(),
+    URL
+  );
+  assert.equal(await descobrir(), 93);
+  assert.match(estiloSonda, /width:1440px/);
+  assert.equal(navegacoes, 1);
+  assert.equal(sondaRemovida, 1);
+});
+
+test('falha de descoberta com duas páginas estreitas pede número em vez de supor 1', () => {
+  const source = script.slice(script.indexOf('    let paginaFinal = CONFIG.paginaFinal;'));
+  assert.match(source, /paginaFinal = await descobrirPaginaFinal\(\)/);
+  assert.match(source, /if \(paginaFinal === null\)/);
+  assert.match(source, /Informe o número da última página para criar os blocos/);
+  assert.doesNotMatch(source, /paginaFinal = 1;/);
+});
+
+test('página fora da origem ou fora da rota /cupons não alimenta detecção', () => {
+  const origem = 'https://www.mercadolivre.com.br';
+  const fnSource = extrairFonteDescoberta();
+  const fn = new Function('origem', 'paginaFinalConhecida', 'URL',
+    fnSource + '\nreturn paginaFinalNaAba;'
+  )(origem, () => 93, URL);
+  const outra = { location: { href: 'https://externo.test/cupons/filter?page=1' },
+    readyState: 'complete' };
+  const fora = { location: { href: origem + '/perfil' }, readyState: 'complete' };
+  assert.equal(fn(outra), null);
+  assert.equal(fn(fora), null);
+});
