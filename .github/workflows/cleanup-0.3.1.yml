@@ -1,0 +1,38 @@
+name: Cleanup 0.3.1 release branch (one-time)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cleanup-0.3.1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify release and delete merged branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          expected_tag='a2cf0f797c562e62919ef9b42be120b15f78177f'
+          expected_branch='b09be3d25d3e67054a1493cc512189a8f0b48bc3'
+          actual_tag="$(gh api "repos/$GH_REPO/git/ref/tags/0.3.1" --jq '.object.sha')"
+          actual_branch="$(gh api "repos/$GH_REPO/git/ref/heads/fix/0.3.1-pagination" --jq '.object.sha')"
+          merged="$(gh api "repos/$GH_REPO/pulls/2" --jq '.merged')"
+          default="$(gh api "repos/$GH_REPO" --jq '.default_branch')"
+          if [ "$actual_tag" != "$expected_tag" ] ||
+             [ "$actual_branch" != "$expected_branch" ] ||
+             [ "$merged" != 'true' ] ||
+             [ "$default" != 'main' ]; then
+            echo 'Release verification failed; keeping the branch.' >&2
+            exit 1
+          fi
+          gh api -X DELETE "repos/$GH_REPO/git/refs/heads/fix/0.3.1-pagination"
+          echo 'Deleted fix/0.3.1-pagination, retaining main and version tags.'
