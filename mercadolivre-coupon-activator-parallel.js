@@ -202,8 +202,8 @@
   }
 
   function limparProgresso() {
-    if (!estado.encerrado && !estado.pausado) {
-      console.warn('[ML Parallel] Pause antes de limpar o progresso.');
+    if (!estado.encerrado) {
+      console.warn('[ML Parallel] Encerre a execução antes de limpar o progresso.');
       return;
     }
     if (!estado.chaveRegistro) return;
@@ -403,6 +403,18 @@
       .test(texto(el));
   }
 
+  function resolverControle(doc, item) {
+    if (item.elemento.isConnected && ativavel(item.elemento) &&
+        visivel(item.elemento) &&
+        (!item.chave || chaveCupom(item.elemento) === item.chave)) {
+      return item.elemento;
+    }
+    if (!item.chave) return null;
+    const candidatos = disponiveis(doc)
+      .filter(x => chaveCupom(x) === item.chave);
+    return candidatos.length === 1 ? candidatos[0] : null;
+  }
+
   function sinalConfirmacao(doc, item) {
     const candidatos = [];
     if (item.elemento.isConnected && (!item.chave || chaveCupom(item.elemento) === item.chave))
@@ -472,6 +484,9 @@
     }));
     const contagem = new Map();
     for (const item of itens) if (item.chave) contagem.set(item.chave, (contagem.get(item.chave) || 0) + 1);
+    // Somente retomadas precisam suprimir TODOS os controles sem identidade.
+    // Durante uma execução nova, diferentes cupons sem ID ainda podem ser acionados.
+    const semIdNaRetomada = salvo.semIdTentado;
 
     for (const item of itens) {
       if (estado.encerrado) return;
@@ -482,7 +497,7 @@
       if (item.chave && salvo.ids.includes(item.chave)) {
         estado.ignorados++; continue;
       }
-      if (!item.chave && salvo.semIdTentado) {
+      if (!item.chave && semIdNaRetomada) {
         estado.ignorados++; continue;
       }
       if (!item.elemento.isConnected || !visivel(item.elemento) || !ativavel(item.elemento)) {
@@ -495,15 +510,25 @@
 
       const outcome = await agendar('clique', CONFIG.intervaloGlobalCliquesMs, async () => {
         if (estado.encerrado || !(await aguardarAtivo())) return null;
+        const docAtual = obterDocumento(trabalhador.frame);
+        if (!paginaCorreta(docAtual, pagina))
+          throw new Error('Página mudou antes de ativar cupom: ' + pagina);
+        verificarAvisos(docAtual);
+        const atual = resolverControle(docAtual, item);
+        if (!atual) {
+          estado.ignorados++;
+          atualizar();
+          return 'ignorado';
+        }
         // Estado persistido ANTES do clique para não repetir em retomadas.
-        if (item.chave) salvo.ids.push(item.chave);
-        else salvo.semIdTentado = true;
+        if (item.chave && !salvo.ids.includes(item.chave)) salvo.ids.push(item.chave);
+        else if (!item.chave) salvo.semIdTentado = true;
         salvar();
 
-        verificarAvisos(obterDocumento(trabalhador.frame));
+        item.elemento = atual;
         const perf = trabalhador.frame.contentWindow?.performance;
         const marco = perf?.now?.() ?? null;
-        item.elemento.click();
+        atual.click();
         estado.cliques++;
         const resultado = await confirmarClique(trabalhador, item, marco);
         if (resultado === 'confirmado') estado.confirmados++;
