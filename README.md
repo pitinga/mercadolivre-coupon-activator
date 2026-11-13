@@ -1,16 +1,17 @@
 # Mercado Livre Coupon Activator
 
-**Versão estável: 0.3.0** · Branch principal `main` · [Histórico de versões](./CHANGELOG.md).
+**Versão 0.3.1 (correção de paginação)** · [Histórico de versões](./CHANGELOG.md).
 
-Automação em JavaScript para percorrer a lista de cupons do Mercado Livre e tentar ativar os cupons disponíveis em cada página. A versão 0.3.0 permite abrir diretamente a página escolhida com `&page=X`, confirmar a navegação e retomar execuções interrompidas.
+Automação em JavaScript para percorrer a lista de cupons do Mercado Livre e tentar ativar os cupons disponíveis em cada página. A versão 0.3.1 permite abrir diretamente a página escolhida com `&page=X`, confirmar a navegação e retomar execuções interrompidas.
 
 > **Projeto independente:** não é oficial nem afiliado ao Mercado Livre. O funcionamento depende da interface atual do site. Use por sua conta e responsabilidade e respeite as regras da plataforma.
 
-## Funcionalidades da versão 0.3.0
+## Funcionalidades da versão 0.3.1
 
 - Percorre as páginas da listagem de cupons, até o limite configurado.
 - **Abre diretamente a página inicial** pela URL `&page=X`, sem percorrer as anteriores.
 - Verifica o número da página pelo indicador selecionado ou por links adjacentes confiáveis; interrompe se não conseguir confirmar a página solicitada.
+- **Aceita páginas com somente cupons já ativados**, identificados por botões como **Conferir** ou pelo conteúdo das ofertas, mesmo sem botões **Ativar** ou cartões reconhecidos pelos seletores antigos.
 - Procura controles com textos como **Aplicar**, **Ativar** e **Resgatar**.
 - Exibe um painel com página atual, quantidade de tentativas e andamento.
 - Permite **Pausar/Continuar** e **Fechar**; a tecla **Esc** pausa a execução.
@@ -21,6 +22,7 @@ Automação em JavaScript para percorrer a lista de cupons do Mercado Livre e te
 - Interrompe após duas respostas HTTP de falha consecutivas (configurável), mas **não interrompe por ausência de confirmação visual**. Tentativas sem evidência são contabilizadas como inconclusivas, e não como falhas.
 - Salva localmente a última página concluída e os identificadores dos cupons já tentados na página pendente. Não salva credenciais.
 - Contém proteções para interromper a execução quando não consegue confirmar uma mudança de página ou identificar um controle com segurança.
+- Mostra diagnóstico no Console somente quando uma página não é confirmada no prazo (URL, número selecionado, quantidade de cartões, botões Ativar/Conferir e carregamento).
 
 ## Como usar
 
@@ -52,7 +54,7 @@ As opções ficam no objeto `CONFIG` no início do arquivo.
 | `maxTentativasNavegacao` | `2` | Tentativas de acesso direto após falha |
 | `maxFalhasHttpConsecutivas` | `2` | Máximo de erros HTTP consecutivos não fatais antes da interrupção |
 
-O estado é guardado no `localStorage` da própria origem do Mercado Livre sob a chave `ml-coupon-activator:progress:0.3.0`. Caso o navegador bloqueie o armazenamento, a execução poderá continuar, **mas a retomada não será persistida**.
+O estado é guardado no `localStorage` da própria origem do Mercado Livre sob a chave `ml-coupon-activator:progress:0.3.0`, **preservada na 0.3.1 para compatibilidade com a retomada de execuções da 0.3.0**. Caso o navegador bloqueie o armazenamento, a execução poderá continuar, **mas a retomada não será persistida**.
 
 ### Regras para retomada segura
 
@@ -93,7 +95,8 @@ Em execução autenticada compartilhada pelo usuário: **67 páginas concluídas
 
 | Versão | Código | Principais características |
 | --- | --- | --- |
-| **0.3.0 (atual)** | [`mercadolivre-coupon-activator.js`](./mercadolivre-coupon-activator.js) | URL direta, validação de paginação, persistência, confirmação conservadora, recuperação e painel ampliado |
+| **0.3.1 (atual)** | [`mercadolivre-coupon-activator.js`](./mercadolivre-coupon-activator.js) | Corrige a confirmação de páginas com apenas cupons já ativados, amplia seletores e acrescenta diagnósticos de carregamento |
+| **0.3.0 (histórica)** | [`mercadolivre-coupon-activator.js`](https://github.com/pitinga/mercadolivre-coupon-activator/blob/0.3.0/mercadolivre-coupon-activator.js) | URL direta, validação de paginação, persistência, confirmação conservadora, recuperação e painel ampliado |
 | **0.2.0 (histórica)** | [`mercadolivre-coupon-activator.js`](https://github.com/pitinga/mercadolivre-coupon-activator/blob/0.2.0/mercadolivre-coupon-activator.js) | Página inicial configurável, pausa/continuação, validações adicionais de navegação e controles |
 | **0.1.0 (histórica)** | [`versions/0.1.0/ML-Cupons.js`](./versions/0.1.0/ML-Cupons.js) | Primeira versão deste projeto, proveniente do [Gist original](https://gist.githubusercontent.com/pitinga/26de31fd8c0cfbf4f7a3c1ed917649e5/raw/c9072ee9721a0574d2620e15b03b5b798c491376/ML-Cupons.js) |
 
