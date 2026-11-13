@@ -39,6 +39,8 @@ Altere o objeto `CONFIG` no início do script.
 
 A confirmação de página verifica o indicador selecionado (ou, quando ausente, combina URL e links da paginação) e conteúdo estabilizado. **Páginas com somente botões "Conferir"/"Ver cupom" são válidas**.
 
+**Detecção da página final:** além dos seletores clássicos, o script procura contêineres `ul`/`ol` e ancestrais do botão **Próximo**, para reconhecer estruturas como `1 2 3 4 ... 93 Próximo` mesmo quando não existe a classe `.andes-pagination`. Caso a descoberta falhe, o Console exibe um diagnóstico dos contêineres candidatos e da largura do viewport. O total não é presumido a partir de números soltos na página.
+
 **Por que separar a descoberta do layout?** Em cinco colunas, a versão móvel/compacta do paginador pode ocultar o último número. Por isso o script mantém **a listagem principal aberta e visível**, rola até o paginador e confirma o total **antes de criar o painel ou qualquer iframe**.
 
 ### Exemplo de divisão
@@ -62,7 +64,7 @@ Cinco trabalhadores começam pelos primeiros cinco blocos. Ao terminar, cada tra
 
 ## Como executar
 
-1. Entre na sua conta do Mercado Livre e abra a página de todos os cupons: `https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all`.
+1. Entre na sua conta do Mercado Livre e abra **a listagem que deseja processar** (por exemplo, `https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all`). O script agora mantém os parâmetros da URL aberta, incluindo filtros como `status=inactive`, em todas as páginas dos trabalhadores.
 2. Abra o console do navegador (**F12**).
 3. Copie o conteúdo integral de `mercadolivre-coupon-activator-parallel.js` e execute-o no console.
 4. O script mantém a **página principal visível, sem painel ou iframes**, rola até a paginação e identifica o último número (por exemplo, `1 2 3 … 93`). Após estabilizar e calcular as faixas, cria o painel de cinco colunas e os cinco trabalhadores. Se a página principal não fornecer um total confiável, solicita `paginaFinal` manualmente; ele também pode ser definido no `CONFIG`.
@@ -79,9 +81,9 @@ Comandos expostos na aba:
 
 ## Retomada e cuidados
 
-O progresso é armazenado no `localStorage` do Mercado Livre, **por página**, sob uma chave separada da versão sequencial, que inclui faixa inicial/final e número de blocos. Não armazena cookies, senhas ou tokens.
+O progresso é armazenado no `localStorage` do Mercado Livre, **por página**, sob uma chave separada da versão sequencial, que inclui **listagem/filtros, faixa inicial/final e número de blocos**. A chave experimental foi atualizada para `parallel:v2` para não misturar progresso de URLs com filtros distintos. Não armazena cookies, senhas ou tokens.
 
-Ao executar novamente com a **mesma faixa e número de blocos**, páginas marcadas como concluídas são ignoradas. Dentro de uma página interrompida, os identificadores de cupons já tentados são ignorados para evitar repetições. Se algum controle sem identificação estável já tiver sido tentado em uma execução anterior, os demais sem identificador serão ignorados nessa retomada por precaução.
+Ao executar novamente com a **mesma URL/listagem, faixa e número de blocos**, páginas marcadas como concluídas são ignoradas. Dentro de uma página interrompida, os identificadores de cupons já tentados são ignorados para evitar repetições. Se algum controle sem identificação estável já tiver sido tentado em uma execução anterior, os demais sem identificador serão ignorados nessa retomada por precaução.
 
 Para reprocessar toda a faixa, encerre o script e execute `limparProgressoCuponsParalelo()` antes de iniciar novamente.
 
