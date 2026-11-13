@@ -4,7 +4,7 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 
 O versionamento deste repositório começa em `0.1.0`, independentemente da numeração de versão presente nos comentários internos do Gist original.
 
-## [0.3.0] - Em desenvolvimento
+## [0.3.0] - 2026-11-13
 
 ### Adicionado
 
@@ -40,10 +40,18 @@ O versionamento deste repositório começa em `0.1.0`, independentemente da nume
 - Tentativas não verificáveis continuam sendo exibidas como **inconclusivas**, sem interromper a paginação nem aumentar a contagem de erros.
 - Testes simulados para múltiplos inconclusivos e mudanças de rótulo.
 
-### Validação pendente
+### Validação funcional — 2026-11-13
 
-- Teste real autenticado no Mercado Livre (dependente da sessão do usuário).
-- Confirmação dos seletores e rótulos de ativação no DOM atual.
+- Teste realizado pelo usuário em sessão autenticada no Mercado Livre, com evidência visual da execução.
+- Início na página 42, encerramento na página 108 (fim da paginação).
+- **67 páginas concluídas; 91 tentativas e 91 ativações confirmadas pela interface**, sem inconclusivos, recusas HTTP, controles ignorados ou falhas.
+- Última resposta HTTP exibida: **200**. Tempo ativo: **06:35**.
+- Paginação, reconhecimento do estado **Conferir** e detecção do fim da listagem validados no teste.
+- **Limitação:** confirmações contabilizadas pelo script a partir da interface; não foi realizada auditoria independente do estado de cada cupom no backend.
+
+### Testes automatizados
+
+- GitHub Actions com Node.js 24, checagem de sintaxe e **20 testes automatizados aprovados**, incluindo fluxos simulados de sucesso, erros HTTP, paginação e retomada.
 
 ## [0.2.0] - 2026-11-12
 
