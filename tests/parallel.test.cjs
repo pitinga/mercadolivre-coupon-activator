@@ -165,11 +165,9 @@ test('CONFIG atual com 250 ms é aceito pelo mesmo validador do script', () => {
   assert.deepEqual(erros, []);
 });
 
-test('intervalos de 250 ms não desativam alerta de pressão sobre o site', () => {
-  assert.match(script, /CONFIG\.intervaloGlobalCliquesMs < 1500/);
-  assert.match(script, /CONFIG\.intervaloGlobalNavegacoesMs < 500/);
-  assert.match(script, /Intervalos globais agressivos/);
-  assert.match(script, /console\.warn\('\[ML Parallel\] Intervalos globais agressivos/);
+test('intervalos de 250 ms são aceitos sem aviso desnecessário', () => {
+  assert.deepEqual(extrairValidador()(config()), []);
+  assert.doesNotMatch(script, /Intervalos globais agressivos/);
 });
 
 test('CONFIG inválido informa especificamente os campos incorretos', () => {
