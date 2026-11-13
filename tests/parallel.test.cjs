@@ -400,3 +400,95 @@ test('quando a descoberta falha, a confirmação manual ocorre antes dos iframes
     source.indexOf('document.body.appendChild(raiz)'));
   assert.doesNotMatch(source, /paginaFinal = 1;/);
 });
+
+
+test('paginador sem classe .andes-pagination identifica 93 via ul responsivo', () => {
+  const detectar = extrairDetectorFinal();
+  const paginacao = {
+    tagName: 'UL',
+    innerText: '1 2 3 4 5 6 7 8 9 … 93 Próximo',
+    textContent: '1 2 3 4 5 6 7 8 9 … 93 Próximo',
+    querySelector() { return null; },
+    querySelectorAll() { return []; }
+  };
+  const doc = {
+    location: { href: 'https://www.mercadolivre.com.br/cupons/filter?all=true&status=inactive' },
+    querySelectorAll(seletor) {
+      if (seletor.includes("ul,ol") || seletor.includes("'ul'")) return [paginacao];
+      return [];
+    }
+  };
+  assert.equal(detectar(doc), 93);
+});
+
+test('paginador sem classes reconhecidas é descoberto pelo ancestral de Próximo', () => {
+  const detectar = extrairDetectorFinal();
+  const container = {
+    innerText: '1 2 3 … 93 Próximo',
+    textContent: '1 2 3 … 93 Próximo',
+    parentElement: null,
+    querySelector() { return null; },
+    querySelectorAll() { return []; }
+  };
+  const proximo = {
+    innerText: 'Próximo',
+    textContent: 'Próximo',
+    parentElement: container
+  };
+  const doc = {
+    location: { href: 'https://www.mercadolivre.com.br/cupons/filter?all=true' },
+    querySelectorAll(seletor) {
+      if (seletor === 'a,button,[role="button"],span,li') return [proximo];
+      return [];
+    }
+  };
+  assert.equal(detectar(doc), 93);
+});
+
+test('não confunde paginação local sem reticências com total de páginas', () => {
+  const detectar = extrairDetectorFinal();
+  const paginacao = {
+    innerText: 'Anterior 1 2 3 4 5 6 7 8 9 Próximo',
+    textContent: 'Anterior 1 2 3 4 5 6 7 8 9 Próximo',
+    querySelector() { return null; },
+    querySelectorAll() { return []; }
+  };
+  const doc = {
+    location: { href: 'https://www.mercadolivre.com.br/cupons/filter?all=true' },
+    querySelectorAll(seletor) {
+      if (seletor.includes("ul,ol")) return [paginacao];
+      return [];
+    }
+  };
+  assert.equal(detectar(doc), null);
+});
+
+test('trabalhadores preservam filtro status=inactive da aba original', () => {
+  const trecho = script.match(/  function urlPagina\(numero\) \{[\s\S]*?\n  \}/);
+  assert.ok(trecho, 'Função de navegação não encontrada');
+  const urlBase = new URL(
+    'https://www.mercadolivre.com.br/cupons/filter?status=inactive&source_page=int_applied_filters&all=true'
+  );
+  const urlPagina = new Function('urlBase', 'CONFIG', 'URL',
+    trecho[0] + '\nreturn urlPagina;'
+  )(urlBase, config(), URL);
+  const resultado = new URL(urlPagina(42));
+  assert.equal(resultado.searchParams.get('status'), 'inactive');
+  assert.equal(resultado.searchParams.get('source_page'), 'int_applied_filters');
+  assert.equal(resultado.searchParams.get('all'), 'true');
+  assert.equal(resultado.searchParams.get('page'), '42');
+  assert.notEqual(resultado.searchParams.get('source_page'), 'int_view_all');
+});
+
+test('retomada distingue listagens com filtros diferentes', () => {
+  assert.match(script, /origemFiltro = filtroAtual\.pathname \+ filtroAtual\.search/);
+  assert.match(script, /encodeURIComponent\(origemFiltro\)/);
+  assert.match(script, /registroAnterior\.origemFiltro === origemFiltro/);
+  assert.match(script, /versao: 'parallel-v2'/);
+});
+
+test('diagnóstico da paginação informa URL, largura e candidatos', () => {
+  assert.match(script, /Diagnóstico de paginação não reconhecida/);
+  assert.match(script, /larguraViewport: window\.innerWidth/);
+  assert.match(script, /candidatos/);
+});
