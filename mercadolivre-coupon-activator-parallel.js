@@ -18,6 +18,7 @@
     esperaAposPaginaMs: 2000,
     intervaloVerificacaoMs: 250,
     timeoutPaginaMs: 45000,
+    timeoutDeteccaoPaginasMs: 15000,
     maxCuponsPorPagina: 300,
     limiteMaximoPaginas: 500,
     url: 'https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all'
@@ -51,7 +52,8 @@
     for (const nome of [
       'intervaloGlobalCliquesMs', 'intervaloGlobalNavegacoesMs',
       'esperaAposCliqueMs', 'esperaConfirmacaoMs',
-      'esperaAposPaginaMs', 'intervaloVerificacaoMs', 'timeoutPaginaMs'
+      'esperaAposPaginaMs', 'intervaloVerificacaoMs', 'timeoutPaginaMs',
+      'timeoutDeteccaoPaginasMs'
     ]) inteiroEntre(nome, 1);
     inteiroEntre('maxCuponsPorPagina', 1);
     return erros;
@@ -166,7 +168,8 @@
     colunas + ',minmax(0,1fr));grid-auto-rows:minmax(0,1fr);' +
     'gap:6px;padding:6px;overflow:hidden;flex:1;min-height:0;');
   raiz.append(barra, quadros);
-  document.body.appendChild(raiz);
+  // A página principal permanece visível durante o pré-processamento.
+  // O painel e os cinco iframes são inseridos APENAS após definir os blocos.
 
   function atualizar() {
     if (estado.fechado) return;
@@ -445,49 +448,80 @@
         const ultima = Math.max(...numeros);
         if (ultima > CONFIG.paginaInicial) return ultima;
       }
+      // O Mercado Livre também pode renderizar o último número como <span>
+      // ou <li> sem <a>/<button>, como "1 2 3 ... 93 Próximo".
+      // Requerer um número terminal APÓS reticências no PAGINADOR, não
+      // assumir que o maior número em uma sequência local seja o total.
+      const rotuloPaginador = texto(area);
+      const marcadores = [...rotuloPaginador.matchAll(/(?:\.{3}|…)\s*(\d+)\b/g)];
+      const ultimoMarcador = marcadores.at(-1);
+      if (ultimoMarcador) {
+        const numero = Number(ultimoMarcador[1]);
+        const depois = rotuloPaginador.slice(
+          ultimoMarcador.index + ultimoMarcador[0].length
+        );
+        if (numeroValido(numero) &&
+            numero > CONFIG.paginaInicial &&
+            !/^\s*(?:\d+|(?:\.{3}|…))/.test(depois)) {
+          return numero;
+        }
+      }
+
       // Não inferir o total de sequências locais 1..7 nem de "1 de 1".
     }
     return null;
   }
 
-  // O DOM da aba principal mantém o viewport largo do navegador.
-  // Não usar o iframe estreito dos trabalhadores para descobrir o total.
-  function paginaFinalNaAba(doc) {
-    try {
-      const url = new URL(doc.location.href);
-      if (url.origin !== origem || !/^\/cupons(?:\/|$)/.test(url.pathname) ||
-          doc.readyState === 'loading') return null;
-      return paginaFinalConhecida(doc);
-    } catch (_) {
-      return null;
-    }
-  }
-
+  // O navegador exibe a listagem original em toda a largura disponível
+  // ANTES de criar painel ou iframes. Isto também mantém a paginação
+  // responsiva no estado mais amplo possível dentro da janela atual.
   async function descobrirPaginaFinal() {
-    const daAba = paginaFinalNaAba(document);
-    if (daAba !== null) {
-      console.log('[ML Parallel] Última página detectada na aba principal:', daAba);
-      return daAba;
+    const pagina = new URL(location.href);
+    if (pagina.origin !== origem || !/^\/cupons(?:\/|$)/.test(pagina.pathname)) {
+      throw new Error(
+        'Abra a listagem principal de cupons na aba antes de executar o experimento.'
+      );
     }
+    console.log('[ML Parallel] Pré-processamento na página principal: ' +
+      'identificando última página antes de abrir os trabalhadores.');
+    const scrollAnterior = { x: window.scrollX, y: window.scrollY };
+    const comeco = ativoMs();
+    let ultimaObservada = null;
+    let desde = null;
 
-    // O iframe usado APENAS para a descoberta não herda a largura estreita
-    // das cinco colunas; o layout interno usa um viewport de desktop.
-    const sonda = el('iframe',
-      'position:fixed;left:-15000px;top:0;width:1440px;height:900px;' +
-      'border:0;pointer-events:none;opacity:0;');
-    sonda.title = 'Consulta de paginação em largura de desktop';
-    raiz.appendChild(sonda);
     try {
-      console.log('[ML Parallel] Consultando última página em viewport de 1440 px.');
-      const pagina = await navegar({ frame: sonda }, CONFIG.paginaInicial);
-      if (!pagina || estado.encerrado) return null;
-      const resultado = paginaFinalConhecida(pagina);
-      if (resultado !== null)
-        console.log('[ML Parallel] Última página detectada na consulta:', resultado);
-      return resultado;
+      // A paginação pode estar fora da área visível e ter carregamento tardio.
+      window.scrollTo(0, Math.max(
+        document.documentElement?.scrollHeight || 0,
+        document.body?.scrollHeight || 0
+      ));
+      while (!estado.encerrado &&
+             ativoMs() - comeco < CONFIG.timeoutDeteccaoPaginasMs) {
+        if (!(await esperar(CONFIG.intervaloVerificacaoMs))) return null;
+        if (document.readyState === 'loading') continue;
+        const detectada = paginaFinalConhecida(document);
+        if (detectada === null) {
+          ultimaObservada = null;
+          desde = null;
+          continue;
+        }
+        if (ultimaObservada !== detectada) {
+          ultimaObservada = detectada;
+          desde = ativoMs();
+          continue;
+        }
+        if (desde !== null &&
+            ativoMs() - desde >= CONFIG.esperaAposPaginaMs) {
+          console.log('[ML Parallel] Última página confirmada na aba principal:', detectada);
+          return detectada;
+        }
+      }
     } finally {
-      sonda.remove();
+      window.scrollTo(scrollAnterior.x, scrollAnterior.y);
     }
+    console.warn('[ML Parallel] A aba principal não expôs uma última página ' +
+      'verificável; informe o total manualmente ou aumente a largura da janela.');
+    return null;
   }
 
   function criarTrabalhador(id) {
@@ -726,18 +760,15 @@
   }
 
   try {
-    const numeroTrabalhadores = Math.min(CONFIG.numeroProcessos, CONFIG.numeroBlocos);
-    const trabalhadores = Array.from({ length: numeroTrabalhadores },
-      (_, i) => criarTrabalhador(i + 1));
-
+    // 1. Examinar a listagem principal em largura total.
+    // 2. Calcular as faixas; SÓ ENTÃO criar painel e iframes.
     let paginaFinal = CONFIG.paginaFinal;
     if (paginaFinal === null) {
-      trabalhadores[0].rotulo.textContent = 'Detectando última página...';
       paginaFinal = await descobrirPaginaFinal();
       if (estado.encerrado) return;
       if (paginaFinal === null) {
-        console.log('[ML Parallel] Total não confirmado nem na aba principal ' +
-          'nem no viewport de desktop. Solicitando o número manualmente.');
+        console.log('[ML Parallel] Total não confirmado na página principal. ' +
+          'Solicitando número antes de criar os trabalhadores.');
         const valor = prompt(
           'Não foi possível confirmar a última página automaticamente.\n' +
           'Informe o número da última página para criar os blocos:', ''
@@ -754,6 +785,11 @@
 
     estado.paginaFinal = paginaFinal;
     estado.blocos = dividirEmBlocos(CONFIG.paginaInicial, paginaFinal, CONFIG.numeroBlocos);
+    console.log('[ML Parallel] Pré-processamento concluído:', {
+      totalPaginas: paginaFinal,
+      numeroBlocos: estado.blocos.length,
+      numeroProcessos: Math.min(CONFIG.numeroProcessos, estado.blocos.length)
+    });
     estado.chaveRegistro = 'ml-coupon-activator:parallel:v1:' +
       CONFIG.paginaInicial + '-' + paginaFinal + ':' + estado.blocos.length;
 
@@ -769,6 +805,12 @@
       ? registroAnterior
       : { versao: 'parallel-v1', paginaInicial: CONFIG.paginaInicial,
           paginaFinal, blocos: estado.blocos.length, paginas: {} };
+
+    // Nunca redimensionar a página antes de obter o total.
+    const numeroTrabalhadores = Math.min(CONFIG.numeroProcessos, estado.blocos.length);
+    document.body.appendChild(raiz);
+    const trabalhadores = Array.from({ length: numeroTrabalhadores },
+      (_, i) => criarTrabalhador(i + 1));
 
     console.log('[ML Parallel] Plano:', {
       numeroBlocos: estado.blocos.length,
