@@ -16,14 +16,16 @@ Cada trabalhador executa as páginas de seu bloco em sequência, mas os trabalha
 
 Altere o objeto `CONFIG` no início do script.
 
-**Parâmetros da branch atual (após personalização):** os intervalos globais estão em 250 ms. A validação aceita inteiros positivos e alerta para valores muito baixos, sem substituí-los. Configurar intervalos agressivos pode levar o Mercado Livre a limitar ou recusar requisições; o script não contorna essas restrições.
+**Parâmetros da branch atual (após personalização):** os intervalos globais estão em 250 ms. A validação aceita inteiros positivos sem emitir aviso apenas por serem intervalos baixos. Valores agressivos ainda podem levar o Mercado Livre a limitar ou recusar requisições; o script não contorna essas restrições.
 
 | Parâmetro | Valor inicial | Função |
 | --- | ---: | --- |
 | `numeroBlocos` | **10** | Quantidade desejada de partes do intervalo |
 | `numeroProcessos` | **5** | Quantidade máxima de iframes/trabalhadores |
+| `colunasPainel` | **5** | Quantidade máxima de colunas na tela (limitada pelos trabalhadores ativos) |
+| `escalaIframe` | **0.7** | Escala visual dos iframes para mostrar mais conteúdo em cada coluna; de 0.4 a 1 |
 | `paginaInicial` | `1` | Primeira página incluída |
-| `paginaFinal` | `null` | Tenta localizar a última página explicitamente; se não conseguir, solicita um número |
+| `paginaFinal` | `null` | Procura uma última página verificável pela paginação; se não conseguir, solicita o número (nunca assume 1 sem evidência) |
 | `intervaloGlobalCliquesMs` | **250** | Intervalo mínimo global entre **inícios** de ativações, independente da confirmação do trabalhador anterior |
 | `intervaloGlobalNavegacoesMs` | **250** | Intervalo mínimo global entre inícios de navegações |
 | `esperaAposCliqueMs` | **2000** | Tempo mínimo total após o clique antes de o mesmo trabalhador prosseguir; a confirmação conta nesse tempo |
@@ -53,14 +55,14 @@ Para `paginaInicial: 1`, `paginaFinal: 111`, `numeroBlocos: 10`:
 | 9 | 90–100 |
 | 10 | 101–111 |
 
-Cinco trabalhadores começam pelos primeiros cinco blocos. Ao terminar, cada trabalhador assume o próximo bloco ainda não iniciado.
+Cinco trabalhadores começam pelos primeiros cinco blocos. Ao terminar, cada trabalhador assume o próximo bloco ainda não iniciado. **Os cinco iframes são exibidos em cinco colunas**, aproveitando a altura do painel; ajuste `escalaIframe` caso prefira mais legibilidade ou mais área visível.
 
 ## Como executar
 
 1. Entre na sua conta do Mercado Livre e abra a página de todos os cupons: `https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all`.
 2. Abra o console do navegador (**F12**).
 3. Copie o conteúdo integral de `mercadolivre-coupon-activator-parallel.js` e execute-o no console.
-4. Se a página final não for encontrada de maneira confiável, será exibida uma pergunta solicitando o número. Você também pode definir `paginaFinal` explicitamente no objeto `CONFIG` antes de executar.
+4. Se a última página não estiver identificável por um link explícito ou número final separado por reticências no componente de paginação, será exibida uma pergunta. Informe o total indicado no Mercado Livre; você também pode definir `paginaFinal` explicitamente no `CONFIG`. **O script não cria um plano de uma página apenas com base em um texto genérico como “1 de 1”.**
 5. Acompanhe os cinco painéis. Use **Pausar** ou **Fechar** na barra superior.
 
 Comandos expostos na aba:
@@ -85,7 +87,7 @@ Para reprocessar toda a faixa, encerre o script e execute `limparProgressoCupons
 - "Inconclusivo" significa apenas que não houve evidência suficiente na interface para confirmar a ativação.
 - O agendador **serializa o início dos cliques** (no mínimo 250 ms de diferença com a configuração atual), mas libera a fila global sem aguardar a confirmação do clique anterior. Cada trabalhador aguarda a confirmação por até 2 s e só prossegue após pelo menos 2 s desde seu próprio clique. Assim, pode haver ativações em andamento em iframes diferentes; as recusas detectadas interrompem novas ativações, mas operações já iniciadas podem estar pendentes. **Não pressupor aceleração de 5×**.
 - Cada iframe consome memória e cria atividade de rede. Cinco trabalhadores podem exigir mais recursos que a versão sequencial.
-- A última página não é estimada a partir do maior número visível, porque a paginação pode ocultar páginas intermediárias e finais.
+- A última página só é obtida a partir de evidência específica do paginador: link explícito de última página ou número final destacado após reticências. Nunca usa o maior número de uma sequência local (por exemplo, 1 a 7) ou um texto genérico de navegação. Na dúvida, solicita `paginaFinal`.
 - A interface do Mercado Livre pode mudar, exigindo ajustes nos seletores.
 
 ## Testes
