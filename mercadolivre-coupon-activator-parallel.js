@@ -8,7 +8,7 @@
     numeroBlocos: 10,
     numeroProcessos: 5,
     paginaInicial: 1,
-    paginaFinal: null, // null: detectar última página; solicitar número se não conseguir
+    paginaFinal: null, 
     intervaloGlobalCliquesMs: 250,
     intervaloGlobalNavegacoesMs: 250,
     esperaAposCliqueMs: 2000,
