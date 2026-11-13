@@ -450,6 +450,46 @@
     return null;
   }
 
+  // O DOM da aba principal mantém o viewport largo do navegador.
+  // Não usar o iframe estreito dos trabalhadores para descobrir o total.
+  function paginaFinalNaAba(doc) {
+    try {
+      const url = new URL(doc.location.href);
+      if (url.origin !== origem || !/^\/cupons(?:\/|$)/.test(url.pathname) ||
+          doc.readyState === 'loading') return null;
+      return paginaFinalConhecida(doc);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function descobrirPaginaFinal() {
+    const daAba = paginaFinalNaAba(document);
+    if (daAba !== null) {
+      console.log('[ML Parallel] Última página detectada na aba principal:', daAba);
+      return daAba;
+    }
+
+    // O iframe usado APENAS para a descoberta não herda a largura estreita
+    // das cinco colunas; o layout interno usa um viewport de desktop.
+    const sonda = el('iframe',
+      'position:fixed;left:-15000px;top:0;width:1440px;height:900px;' +
+      'border:0;pointer-events:none;opacity:0;');
+    sonda.title = 'Consulta de paginação em largura de desktop';
+    raiz.appendChild(sonda);
+    try {
+      console.log('[ML Parallel] Consultando última página em viewport de 1440 px.');
+      const pagina = await navegar({ frame: sonda }, CONFIG.paginaInicial);
+      if (!pagina || estado.encerrado) return null;
+      const resultado = paginaFinalConhecida(pagina);
+      if (resultado !== null)
+        console.log('[ML Parallel] Última página detectada na consulta:', resultado);
+      return resultado;
+    } finally {
+      sonda.remove();
+    }
+  }
+
   function criarTrabalhador(id) {
     const box = el('div', 'display:flex;flex-direction:column;min-height:0;min-width:0;height:100%;' +
       'border:1px solid #bbb;border-radius:6px;background:white;overflow:hidden;');
@@ -693,23 +733,24 @@
     let paginaFinal = CONFIG.paginaFinal;
     if (paginaFinal === null) {
       trabalhadores[0].rotulo.textContent = 'Detectando última página...';
-      const primeiro = await navegar(trabalhadores[0], CONFIG.paginaInicial);
-      if (!primeiro) throw new Error('Não foi possível validar a página inicial.');
-      paginaFinal = paginaFinalConhecida(primeiro);
+      paginaFinal = await descobrirPaginaFinal();
+      if (estado.encerrado) return;
       if (paginaFinal === null) {
-        console.log('[ML Parallel] Última página não confirmada pela paginação. ' +
-          'Solicitando número para impedir divisão incorreta em apenas um bloco.');
+        console.log('[ML Parallel] Total não confirmado nem na aba principal ' +
+          'nem no viewport de desktop. Solicitando o número manualmente.');
         const valor = prompt(
-          'Não foi possível confirmar a última página automaticamente.\\n' +
+          'Não foi possível confirmar a última página automaticamente.\n' +
           'Informe o número da última página para criar os blocos:', ''
         );
         if (valor === null) throw new Error('Cancelado: última página não informada.');
-        paginaFinal = Number(valor);
+        if (!/^[1-9]\d*$/.test(valor.trim()))
+          throw new Error('Última página inválida: informe um número inteiro positivo.');
+        paginaFinal = Number(valor.trim());
       }
-      if (!Number.isSafeInteger(paginaFinal) || paginaFinal < CONFIG.paginaInicial ||
-          paginaFinal > CONFIG.limiteMaximoPaginas)
-        throw new Error('Última página inválida. Informe CONFIG.paginaFinal manualmente.');
     }
+    if (!Number.isSafeInteger(paginaFinal) || paginaFinal < CONFIG.paginaInicial ||
+        paginaFinal > CONFIG.limiteMaximoPaginas)
+      throw new Error('Última página inválida. Informe CONFIG.paginaFinal manualmente.');
 
     estado.paginaFinal = paginaFinal;
     estado.blocos = dividirEmBlocos(CONFIG.paginaInicial, paginaFinal, CONFIG.numeroBlocos);
