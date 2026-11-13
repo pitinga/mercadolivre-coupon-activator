@@ -39,7 +39,9 @@ Altere o objeto `CONFIG` no início do script.
 
 A confirmação de página verifica o indicador selecionado (ou, quando ausente, combina URL e links da paginação) e conteúdo estabilizado. **Páginas com somente botões "Conferir"/"Ver cupom" são válidas**.
 
-**Detecção da página final:** além dos seletores clássicos, o script procura contêineres `ul`/`ol` e ancestrais do botão **Próximo**, para reconhecer estruturas como `1 2 3 4 ... 93 Próximo` mesmo quando não existe a classe `.andes-pagination`. Caso a descoberta falhe, o Console exibe um diagnóstico dos contêineres candidatos e da largura do viewport. O total não é presumido a partir de números soltos na página.
+**Detecção da página final:** a descoberta agora prioriza a estrutura do **DOM real do Mercado Livre**, observada no elemento `nav[aria-label="Paginação"]`: `ul[data-andes-pagination="true"]`, reticências em `li.andes-pagination__dots` e links em `a[data-andes-pagination-item="true"]`. O último número navegável **após as reticências** é confirmado por texto, `href?page=N` e, quando disponível, `aria-label`. As reticências são três elementos `<i>` desenhados por CSS e **não aparecem em `innerText`**, o que explicava a falha anterior. O detector mantém os métodos antigos apenas como alternativa e nunca deve usar o maior número de uma faixa local como total.
+
+O HTML fornecido como evidência mostra uma listagem de **111 páginas**; uma captura com filtros diferentes mostrou **93**. Por isso o script sempre considera a paginação e os parâmetros da URL aberta. O HTML completo da sessão não foi incluído neste repositório; os testes usam apenas uma representação mínima da paginação, sem dados da conta ou tokens.
 
 **Por que separar a descoberta do layout?** Em cinco colunas, a versão móvel/compacta do paginador pode ocultar o último número. Por isso o script mantém **a listagem principal aberta e visível**, rola até o paginador e confirma o total **antes de criar o painel ou qualquer iframe**.
 
@@ -94,7 +96,7 @@ Para reprocessar toda a faixa, encerre o script e execute `limparProgressoCupons
 - "Inconclusivo" significa apenas que não houve evidência suficiente na interface para confirmar a ativação.
 - O agendador **serializa o início dos cliques** (no mínimo 250 ms de diferença com a configuração atual), mas libera a fila global sem aguardar a confirmação do clique anterior. Cada trabalhador aguarda a confirmação por até 2 s e só prossegue após pelo menos 2 s desde seu próprio clique. Assim, pode haver ativações em andamento em iframes diferentes; as recusas detectadas interrompem novas ativações, mas operações já iniciadas podem estar pendentes. **Não pressupor aceleração de 5×**.
 - Cada iframe consome memória e cria atividade de rede. Cinco trabalhadores podem exigir mais recursos que a versão sequencial.
-- A última página só é obtida a partir de evidência específica do paginador: link explícito de última página ou número final destacado após reticências. Nunca usa o maior número de uma sequência local (por exemplo, 1 a 7) ou um texto genérico de navegação. Na dúvida, solicita `paginaFinal`.
+- A última página só é obtida por evidência do próprio paginador: preferencialmente o link final imediatamente após `li.andes-pagination__dots` (validado contra o `href`); como alternativa, outros sinais explícitos de última página. Nunca usa o maior número de uma sequência local (por exemplo, 1 a 7) como total. Na dúvida, solicita `paginaFinal`.
 - A interface do Mercado Livre pode mudar, exigindo ajustes nos seletores.
 
 ## Testes
