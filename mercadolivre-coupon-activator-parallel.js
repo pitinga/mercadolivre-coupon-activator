@@ -7,6 +7,8 @@
   const CONFIG = {
     numeroBlocos: 10,
     numeroProcessos: 5,
+    colunasPainel: 5,
+    escalaIframe: 0.7,
     paginaInicial: 1,
     paginaFinal: null, 
     intervaloGlobalCliquesMs: 250,
@@ -38,6 +40,10 @@
     inteiroEntre('limiteMaximoPaginas', 1);
     inteiroEntre('numeroBlocos', 1, config.limiteMaximoPaginas);
     inteiroEntre('numeroProcessos', 1, 20);
+    inteiroEntre('colunasPainel', 1, 10);
+    if (typeof config.escalaIframe !== 'number' || !Number.isFinite(config.escalaIframe) ||
+        config.escalaIframe < 0.4 || config.escalaIframe > 1)
+      erros.push('escalaIframe: esperado número entre 0.4 e 1');
     inteiroEntre('paginaInicial', 1, config.limiteMaximoPaginas);
     if (config.paginaFinal !== null) {
       inteiroEntre('paginaFinal', config.paginaInicial, config.limiteMaximoPaginas);
@@ -56,14 +62,6 @@
     console.error('[ML Parallel] Parâmetros inválidos no objeto CONFIG:', errosConfig);
     return;
   }
-  if (CONFIG.intervaloGlobalCliquesMs < 1500 ||
-      CONFIG.intervaloGlobalNavegacoesMs < 500) {
-    console.warn('[ML Parallel] Intervalos globais agressivos; o site pode limitar as requisições.', {
-      intervaloGlobalCliquesMs: CONFIG.intervaloGlobalCliquesMs,
-      intervaloGlobalNavegacoesMs: CONFIG.intervaloGlobalNavegacoesMs
-    });
-  }
-
   try { window.fecharCuponsParalelo?.(); } catch (_) {}
   document.getElementById('ml-cupons-parallel-root')?.remove();
 
@@ -163,8 +161,10 @@
   const pausa = el('button', 'padding:7px 12px;cursor:pointer;', 'Pausar');
   const fecharBtn = el('button', 'padding:7px 12px;cursor:pointer;', 'Fechar');
   barra.append(titulo, resumo, pausa, fecharBtn);
-  const quadros = el('div', 'display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));' +
-    'align-content:start;gap:8px;padding:8px;overflow:auto;flex:1;min-height:0;');
+  const colunas = Math.min(CONFIG.numeroProcessos, CONFIG.colunasPainel);
+  const quadros = el('div', 'display:grid;grid-template-columns:repeat(' +
+    colunas + ',minmax(0,1fr));grid-auto-rows:minmax(0,1fr);' +
+    'gap:6px;padding:6px;overflow:hidden;flex:1;min-height:0;');
   raiz.append(barra, quadros);
   document.body.appendChild(raiz);
 
@@ -376,34 +376,93 @@
     return aguardarPagina(trabalhador.frame, pagina);
   }
 
+  // A paginação pode mostrar o texto "1 de 1" em componentes não
+  // relacionados. Nunca utilizar um texto genérico de <nav> como total.
+  // Quando o fim não é demonstrável, solicitar a última página ao usuário.
   function paginaFinalConhecida(doc) {
-    const navs = [...doc.querySelectorAll('nav,.andes-pagination,[class*="pagination"]')];
-    for (const nav of navs) {
-      const ultima = nav.querySelector(
-        'a[rel="last"],a[aria-label*="ltima"],a[title*="ltima"],' +
-        '.andes-pagination__button--last a'
-      );
-      if (ultima) {
-        const href = ultima.getAttribute('href');
-        if (href) {
-          const n = Number(new URL(href, doc.location.href).searchParams.get('page'));
-          if (Number.isSafeInteger(n) && n >= CONFIG.paginaInicial) return n;
-        }
+    const areas = [...new Set(doc.querySelectorAll(
+      '.andes-pagination, [data-testid*="pagination"], ' +
+      'nav[aria-label*="paginação"], nav[aria-label*="pagination"]'
+    ))];
+    function numeroValido(numero) {
+      return Number.isSafeInteger(numero) &&
+        numero >= CONFIG.paginaInicial && numero <= CONFIG.limiteMaximoPaginas;
+    }
+    function numeroLink(elemento) {
+      if (!elemento) return null;
+      const href = elemento.getAttribute?.('href');
+      if (href) {
+        try {
+          const valor = new URL(href, doc.location.href).searchParams.get('page');
+          if (valor !== null && /^[1-9]\d*$/.test(valor)) return Number(valor);
+        } catch (_) {}
       }
-      const paginaTexto = texto(nav).match(/\b(?:p[aá]gina)?\s*\d+\s+de\s+(\d+)\b/i);
-      if (paginaTexto) return Number(paginaTexto[1]);
+      const rotulo = texto(elemento);
+      return /^\d+$/.test(rotulo) ? Number(rotulo) : null;
+    }
+    function proximaHabilitada(area) {
+      const botao = area.querySelector(
+        'li.andes-pagination__button--next a, ' +
+        'li.andes-pagination__button--next button, ' +
+        '.andes-pagination__button--next a, a[rel="next"], ' +
+        '[data-testid="pagination-next"]'
+      );
+      if (!botao) return false;
+      const desabilitado = botao.getAttribute?.('aria-disabled') === 'true' ||
+        botao.hasAttribute?.('disabled') ||
+        botao.closest?.(
+          '[disabled],[aria-disabled="true"],' +
+          '.andes-pagination__button--disabled'
+        );
+      return !desabilitado;
+    }
+    for (const area of areas) {
+      const possuiProxima = proximaHabilitada(area);
+      const fimExplicito = area.querySelector(
+        'a[rel="last"], [aria-label*="ltima página"], ' +
+        '[title*="ltima página"], ' +
+        '.andes-pagination__button--last a, ' +
+        '.andes-pagination__button--last button'
+      );
+      const numeroExplicito = numeroLink(fimExplicito);
+      if (numeroValido(numeroExplicito) &&
+          (numeroExplicito > CONFIG.paginaInicial || !possuiProxima)) {
+        return numeroExplicito;
+      }
+
+      // Em paginadores com "1 ... 106 107 ... 111", o último
+      // número isolado depois de reticências é a última página.
+      const itens = [...area.querySelectorAll('a, button, [role="button"]')];
+      const numeros = itens
+        .filter(el => /^\d+$/.test(texto(el)))
+        .map(numeroLink)
+        .filter(numeroValido);
+      const comReticencias = /(?:\.\.\.|…)/.test(texto(area)) ||
+        Boolean(area.querySelector(
+          '.andes-pagination__button--ellipsis, [class*="pagination"][class*="ellipsis"]'
+        ));
+      if (comReticencias && numeros.length >= 2) {
+        const ultima = Math.max(...numeros);
+        if (ultima > CONFIG.paginaInicial) return ultima;
+      }
+      // Não inferir o total de sequências locais 1..7 nem de "1 de 1".
     }
     return null;
   }
 
   function criarTrabalhador(id) {
-    const box = el('div', 'display:flex;flex-direction:column;min-height:255px;' +
+    const box = el('div', 'display:flex;flex-direction:column;min-height:0;min-width:0;height:100%;' +
       'border:1px solid #bbb;border-radius:6px;background:white;overflow:hidden;');
     const rotulo = el('div', 'padding:6px;background:#f1f1f1;font-weight:bold;',
       'Trabalhador ' + id + ' — aguardando');
-    const frame = el('iframe', 'width:100%;height:245px;border:0;flex:1;');
+    const areaIframe = el('div', 'position:relative;flex:1;min-height:0;overflow:hidden;');
+    const escala = CONFIG.escalaIframe;
+    const frame = el('iframe', 'display:block;border:0;transform-origin:top left;' +
+      'transform:scale(' + escala + ');width:' + (100 / escala) + '%;' +
+      'height:' + (100 / escala) + '%;');
     frame.title = 'ML Cupons trabalhador ' + id;
-    box.append(rotulo, frame);
+    areaIframe.appendChild(frame);
+    box.append(rotulo, areaIframe);
     quadros.appendChild(box);
     const trabalhador = { id, frame, rotulo, bloco: null };
     estado.trabalhadores.push(trabalhador);
@@ -637,10 +696,12 @@
       const primeiro = await navegar(trabalhadores[0], CONFIG.paginaInicial);
       if (!primeiro) throw new Error('Não foi possível validar a página inicial.');
       paginaFinal = paginaFinalConhecida(primeiro);
-      if (!paginaFinal) {
+      if (paginaFinal === null) {
+        console.log('[ML Parallel] Última página não confirmada pela paginação. ' +
+          'Solicitando número para impedir divisão incorreta em apenas um bloco.');
         const valor = prompt(
-          'Não foi possível determinar a última página com segurança.\n' +
-          'Informe o número da última página para dividir os blocos:', ''
+          'Não foi possível confirmar a última página automaticamente.\\n' +
+          'Informe o número da última página para criar os blocos:', ''
         );
         if (valor === null) throw new Error('Cancelado: última página não informada.');
         paginaFinal = Number(valor);
