@@ -406,7 +406,7 @@
       // antes do botão Próximo; não confundir páginas intermediárias.
       if (!candidato || paginas.at(-1) !== candidato) continue;
       const rotulo = texto(candidato);
-      if (!/^[1-9]\\d*$/.test(rotulo)) continue;
+      if (!/^[1-9]\d*$/.test(rotulo)) continue;
       const numero = Number(rotulo);
       if (!Number.isSafeInteger(numero) ||
           numero <= CONFIG.paginaInicial ||
@@ -418,7 +418,7 @@
         const urlAtual = new URL(doc.location.href);
         const parametro = href.searchParams.get('page');
         const aria = candidato.getAttribute?.('aria-label') || '';
-        const numeroAria = /p[áa]gina\\s+(\\d+)/i.exec(aria)?.[1];
+        const numeroAria = /p[áa]gina\s+(\d+)/i.exec(aria)?.[1];
         if (href.origin !== urlAtual.origin ||
             href.pathname !== urlAtual.pathname ||
             parametro !== rotulo ||
