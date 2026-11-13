@@ -26,18 +26,42 @@
     console.error('[ML Parallel] Abra a página de cupons antes de executar.');
     return;
   }
-  if (![CONFIG.numeroBlocos, CONFIG.numeroProcessos, CONFIG.paginaInicial]
-      .every(n => Number.isSafeInteger(n) && n >= 1) ||
-      CONFIG.numeroBlocos > CONFIG.limiteMaximoPaginas ||
-      CONFIG.numeroProcessos > 20 ||
-      CONFIG.intervaloGlobalCliquesMs < 1000 ||
-      CONFIG.intervaloGlobalNavegacoesMs < 500 ||
-      (CONFIG.paginaFinal !== null &&
-       (!Number.isSafeInteger(CONFIG.paginaFinal) ||
-        CONFIG.paginaFinal < CONFIG.paginaInicial ||
-        CONFIG.paginaFinal > CONFIG.limiteMaximoPaginas))) {
-    console.error('[ML Parallel] Parâmetros inválidos no objeto CONFIG.');
+  // Permitir intervalos configuráveis menores que os valores sugeridos.
+  // Validar apenas o tipo/faixa; intervalos agressivos geram aviso, não bloqueio.
+  function validarConfig(config) {
+    const erros = [];
+    const inteiroEntre = (nome, minimo, maximo = Number.MAX_SAFE_INTEGER) => {
+      const valor = config[nome];
+      if (!Number.isSafeInteger(valor) || valor < minimo || valor > maximo)
+        erros.push(nome + ': esperado inteiro entre ' + minimo + ' e ' + maximo);
+    };
+    inteiroEntre('limiteMaximoPaginas', 1);
+    inteiroEntre('numeroBlocos', 1, config.limiteMaximoPaginas);
+    inteiroEntre('numeroProcessos', 1, 20);
+    inteiroEntre('paginaInicial', 1, config.limiteMaximoPaginas);
+    if (config.paginaFinal !== null) {
+      inteiroEntre('paginaFinal', config.paginaInicial, config.limiteMaximoPaginas);
+    }
+    for (const nome of [
+      'intervaloGlobalCliquesMs', 'intervaloGlobalNavegacoesMs',
+      'esperaAposCliqueMs', 'esperaConfirmacaoMs',
+      'esperaAposPaginaMs', 'intervaloVerificacaoMs', 'timeoutPaginaMs'
+    ]) inteiroEntre(nome, 1);
+    inteiroEntre('maxCuponsPorPagina', 1);
+    return erros;
+  }
+
+  const errosConfig = validarConfig(CONFIG);
+  if (errosConfig.length) {
+    console.error('[ML Parallel] Parâmetros inválidos no objeto CONFIG:', errosConfig);
     return;
+  }
+  if (CONFIG.intervaloGlobalCliquesMs < 1500 ||
+      CONFIG.intervaloGlobalNavegacoesMs < 500) {
+    console.warn('[ML Parallel] Intervalos globais agressivos; o site pode limitar as requisições.', {
+      intervaloGlobalCliquesMs: CONFIG.intervaloGlobalCliquesMs,
+      intervaloGlobalNavegacoesMs: CONFIG.intervaloGlobalNavegacoesMs
+    });
   }
 
   try { window.fecharCuponsParalelo?.(); } catch (_) {}
