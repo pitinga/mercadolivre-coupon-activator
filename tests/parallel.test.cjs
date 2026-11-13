@@ -197,3 +197,109 @@ test('intervalos continuam parametrizáveis (1, 250 e 1500 ms)', () => {
   c.intervaloGlobalCliquesMs = 1.5;
   assert.ok(validar(c).some(x => x.includes('intervaloGlobalCliquesMs')));
 });
+
+
+function extrairDetectorFinal() {
+  const inicio = script.indexOf('  function paginaFinalConhecida(doc) {');
+  const fim = script.indexOf('  function criarTrabalhador(id) {', inicio);
+  assert.ok(inicio >= 0 && fim > inicio, 'Detector de última página não localizado');
+  const codigo = script.slice(inicio, fim);
+  return new Function('CONFIG', 'texto', 'URL',
+    codigo + '\nreturn paginaFinalConhecida;')(
+    config(),
+    el => String(el?.innerText || el?.textContent || '').trim(),
+    URL
+  );
+}
+
+function simulacaoPaginador({ rotulos = [], reticencias = false, ultimo = null,
+  proxima = true, textoNav = '' } = {}) {
+  const link = (rotulo, pagina) => ({
+    innerText: String(rotulo),
+    textContent: String(rotulo),
+    getAttribute(nome) {
+      return nome === 'href' && pagina !== null
+        ? '/cupons/filter?all=true&page=' + pagina : null;
+    }
+  });
+  const links = rotulos.map(n => link(n, n));
+  const ultimoLink = ultimo === null ? null : link(ultimo, ultimo);
+  const proximoLink = proxima ? {
+    getAttribute() { return null; },
+    hasAttribute() { return false; },
+    closest() { return null; }
+  } : null;
+  const area = {
+    innerText: textoNav || rotulos.join(' ') + (reticencias ? ' ...' : ''),
+    textContent: textoNav || rotulos.join(' ') + (reticencias ? ' ...' : ''),
+    querySelector(seletor) {
+      if (seletor.includes('a[rel="last"]')) return ultimoLink;
+      if (seletor.includes('li.andes-pagination__button--next a')) return proximoLink;
+      return null;
+    },
+    querySelectorAll(seletor) {
+      return seletor.includes('a, button') ? links : [];
+    }
+  };
+  return {
+    location: { href: 'https://www.mercadolivre.com.br/cupons/filter?all=true&page=1' },
+    querySelectorAll(seletor) {
+      if (seletor.includes('.andes-pagination')) return [area];
+      if (seletor === 'nav') return [area];
+      return [];
+    }
+  };
+}
+
+test('paginação 1 ... 111 é dividida em 10 blocos, sem reduzir a somente 1', () => {
+  const detectar = extrairDetectorFinal();
+  const doc = simulacaoPaginador({ rotulos: [1,2,3,4,5,6,7,111], reticencias: true });
+  assert.equal(detectar(doc), 111);
+  assert.equal(extrairDivisao()(1, detectar(doc), 10).length, 10);
+});
+
+test('texto genérico 1 de 1 não é tratado como número total de páginas', () => {
+  const detectar = extrairDetectorFinal();
+  const doc = simulacaoPaginador({ rotulos: [1,2,3,4,5,6,7], proxima: true,
+    textoNav: '1 de 1' });
+  assert.equal(detectar(doc), null);
+});
+
+test('pager local 1..7 sem indicação explícita de última página exige confirmação', () => {
+  assert.equal(extrairDetectorFinal()(
+    simulacaoPaginador({ rotulos: [1,2,3,4,5,6,7], proxima: true })
+  ), null);
+});
+
+test('link explícito de última página 111 permite iniciar todos os blocos', () => {
+  assert.equal(extrairDetectorFinal()(
+    simulacaoPaginador({ rotulos: [1,2,3], ultimo: 111 })
+  ), 111);
+});
+
+test('última página 1 só é aceita quando explicitamente informada e sem Próxima', () => {
+  const detectar = extrairDetectorFinal();
+  assert.equal(detectar(simulacaoPaginador({
+    rotulos: [1], ultimo: 1, proxima: false
+  })), 1);
+  assert.equal(detectar(simulacaoPaginador({
+    rotulos: [1], ultimo: 1, proxima: true
+  })), null);
+});
+
+test('cinco trabalhadores utilizam cinco colunas de altura total', () => {
+  const c = config();
+  assert.equal(c.colunasPainel, 5);
+  assert.equal(c.numeroProcessos, 5);
+  assert.equal(c.escalaIframe, 0.7);
+  assert.match(script, /grid-template-columns:repeat\('/);
+  assert.match(script, /colunas \+ ',minmax\(0,1fr\)/);
+  assert.match(script, /grid-auto-rows:minmax\(0,1fr\)/);
+  assert.match(script, /areaIframe\.appendChild\(frame\)/);
+  assert.match(script, /box\.append\(rotulo, areaIframe\)/);
+});
+
+test('sem alertas de intervalo baixo; erros HTTP continuam protegidos', () => {
+  assert.doesNotMatch(script, /Intervalos globais agressivos/);
+  assert.match(script, /\[401,\s*403,\s*429\]\.includes\(status\)/);
+});
