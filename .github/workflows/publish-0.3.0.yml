@@ -23,8 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           sha='2fa668a17d0263de7a59a3f410a617be48455a5e'
-          existing="$(gh api "repos/$GH_REPO/git/ref/tags/0.3.0" --jq '.object.sha' 2>/dev/null || true)"
-          if [ -n "$existing" ]; then
+          if existing="$(gh api "repos/$GH_REPO/git/ref/tags/0.3.0" --jq '.object.sha' 2>/dev/null)"; then
             if [ "$existing" != "$sha" ]; then
               echo "Refusing to move existing tag 0.3.0 ($existing)" >&2
               exit 1
