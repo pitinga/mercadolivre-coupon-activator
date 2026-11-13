@@ -4,6 +4,55 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 
 O versionamento deste repositório começa em `0.1.0`, independentemente da numeração de versão presente nos comentários internos do Gist original.
 
+## [0.3.0] - 2026-11-13
+
+### Adicionado
+
+- Acesso **direto** à página inicial escolhida por meio de `&page=X`, sem percorrer as páginas anteriores.
+- Verificação de página por indicador de paginação ou links adjacentes; alterações textuais sozinhas não validam a navegação.
+- Espera de estabilização dos elementos de cupom e tratamento de carregamentos lentos.
+- Recuperação controlada de falhas na navegação por URL direta, sem repetir cliques em cupons.
+- Registro local do progresso, com retomada sugerida da página pendente e proteção contra reprocessar identificadores já tentados.
+- Confirmação conservadora da ativação por rótulos explícitos associados ao controle do cupom; tentativas sem evidência ficam como inconclusivas.
+- Contadores de páginas, tentativas, confirmações, inconclusivos, ignorados, falhas e tempo ativo.
+- Intervalos e tempos de espera configuráveis, além de interrupção em bloqueios e sinais de limitação do serviço.
+- Testes automatizados e workflow GitHub Actions com Node.js 24.
+
+### Alterado
+
+- Identificação dos controles restrita a cartões de cupons quando o DOM disponibiliza essa estrutura.
+- Controles com identificadores duplicados ou instáveis são ignorados, em vez de tentar inferir pela posição.
+- A retomada sem identificadores estáveis é conservadora para não repetir cliques em cupons já tentados.
+
+### Corrigido após validação real (HTTP 403)
+
+- Interrupção imediata quando a ativação recebe **HTTP 401, 403 ou 429**, se o navegador disponibiliza o status da resposta.
+- Detecção de aviso **“Tivemos um problema”** e mensagens semelhantes na interface, interrompendo sem exigir leitura da resposta HTTP.
+- Proteção contra sequências de falhas HTTP; tentativas inconclusivas não são motivo de interrupção.
+- Correção da contagem de falhas para evitar duplicações.
+- Testes de regressão simulados para HTTP 403, HTTP 429, HTTP 500, aviso de erro e tentativas inconclusivas.
+
+### Corrigido após testes de novembro de 2026 (falsos inconclusivos)
+
+- Removida a interrupção por três ativações consecutivas sem confirmação, pois a interface pode ativar cupons sem expor os rótulos reconhecidos pelo script.
+- Novos rótulos de sucesso: `Conferir` e `Ver cupom`, desde que apareçam no controle do **mesmo** cupom após o clique.
+- Os estados preexistentes antes do clique não contam como confirmação.
+- Tentativas não verificáveis continuam sendo exibidas como **inconclusivas**, sem interromper a paginação nem aumentar a contagem de erros.
+- Testes simulados para múltiplos inconclusivos e mudanças de rótulo.
+
+### Validação funcional — 2026-11-13
+
+- Teste realizado pelo usuário em sessão autenticada no Mercado Livre, com evidência visual da execução.
+- Início na página 42, encerramento na página 108 (fim da paginação).
+- **67 páginas concluídas; 91 tentativas e 91 ativações confirmadas pela interface**, sem inconclusivos, recusas HTTP, controles ignorados ou falhas.
+- Última resposta HTTP exibida: **200**. Tempo ativo: **06:35**.
+- Paginação, reconhecimento do estado **Conferir** e detecção do fim da listagem validados no teste.
+- **Limitação:** confirmações contabilizadas pelo script a partir da interface; não foi realizada auditoria independente do estado de cada cupom no backend.
+
+### Testes automatizados
+
+- GitHub Actions com Node.js 24, checagem de sintaxe e **20 testes automatizados aprovados**, incluindo fluxos simulados de sucesso, erros HTTP, paginação e retomada.
+
 ## [0.2.0] - 2026-11-12
 
 ### Adicionado
