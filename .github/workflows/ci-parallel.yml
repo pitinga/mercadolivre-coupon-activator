@@ -1,0 +1,26 @@
+name: Parallel experiment CI
+
+on:
+  push:
+    branches:
+      - experiment/parallel-processing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Parallel script — Node 24
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Check JavaScript syntax
+        run: node --check mercadolivre-coupon-activator-parallel.js
+      - name: Execute parallel tests
+        run: node --test tests/parallel.test.cjs
