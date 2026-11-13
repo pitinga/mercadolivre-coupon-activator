@@ -42,32 +42,32 @@ jobs:
         run: |
           set -euo pipefail
           cat > release-notes.md <<'RELEASE_NOTES'
-## Mercado Livre Coupon Activator 0.3.0
-
-Versão estável após validação funcional em 13/11/2026.
-
-### Novidades
-- Abertura direta da página inicial solicitada com `&page=X`.
-- Navegação confirmada e detecção do fim da paginação.
-- Pausa, retomada e progresso salvo localmente.
-- Detecção de ativação por mudança de estado no mesmo cupom (ex.: **Conferir**).
-- Contagem separada de confirmações, tentativas inconclusivas, recusas e falhas.
-- Interrupção diante de HTTP 401/403/429 ou avisos explícitos de erro.
-- Painel ampliado e testes automatizados no Node.js 24.
-
-### Validação
-- Execução autenticada informada pelo usuário: início na página 42 e término na 108.
-- 67 páginas concluídas, 91 tentativas, **91 confirmações pela interface**, nenhuma falha, recusa ou tentativa inconclusiva.
-- Tempo ativo total: **06:35**.
-- **20 testes automatizados aprovados** e sintaxe JavaScript verificada na CI.
-
-**Nota:** as confirmações são indicadores da interface e não representam auditoria independente no backend do Mercado Livre.
-
-### Utilização
-Faça login no Mercado Livre, abra a página de todos os cupons e execute `mercadolivre-coupon-activator.js` no console do navegador, conforme o [README](https://github.com/pitinga/mercadolivre-coupon-activator/blob/0.3.0/README.md).
-
-Este é um projeto independente, sem afiliação oficial ao Mercado Livre.
-RELEASE_NOTES
+          ## Mercado Livre Coupon Activator 0.3.0
+          
+          Versão estável após validação funcional em 13/11/2026.
+          
+          ### Novidades
+          - Abertura direta da página inicial solicitada com `&page=X`.
+          - Navegação confirmada e detecção do fim da paginação.
+          - Pausa, retomada e progresso salvo localmente.
+          - Detecção de ativação por mudança de estado no mesmo cupom (ex.: **Conferir**).
+          - Contagem separada de confirmações, tentativas inconclusivas, recusas e falhas.
+          - Interrupção diante de HTTP 401/403/429 ou avisos explícitos de erro.
+          - Painel ampliado e testes automatizados no Node.js 24.
+          
+          ### Validação
+          - Execução autenticada informada pelo usuário: início na página 42 e término na 108.
+          - 67 páginas concluídas, 91 tentativas, **91 confirmações pela interface**, nenhuma falha, recusa ou tentativa inconclusiva.
+          - Tempo ativo total: **06:35**.
+          - **20 testes automatizados aprovados** e sintaxe JavaScript verificada na CI.
+          
+          **Nota:** as confirmações são indicadores da interface e não representam auditoria independente no backend do Mercado Livre.
+          
+          ### Utilização
+          Faça login no Mercado Livre, abra a página de todos os cupons e execute `mercadolivre-coupon-activator.js` no console do navegador, conforme o [README](https://github.com/pitinga/mercadolivre-coupon-activator/blob/0.3.0/README.md).
+          
+          Este é um projeto independente, sem afiliação oficial ao Mercado Livre.
+          RELEASE_NOTES
           if gh release view '0.3.0' >/dev/null 2>&1; then
             echo "Release 0.3.0 already exists, not overwriting."
           else
