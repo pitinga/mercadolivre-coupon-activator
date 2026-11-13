@@ -433,41 +433,30 @@
         return numeroExplicito;
       }
 
-      // Em paginadores com "1 ... 106 107 ... 111", o último
-      // número isolado depois de reticências é a última página.
-      const itens = [...area.querySelectorAll('a, button, [role="button"]')];
-      const numeros = itens
-        .filter(el => /^\d+$/.test(texto(el)))
-        .map(numeroLink)
-        .filter(numeroValido);
-      const comReticencias = /(?:\.\.\.|…)/.test(texto(area)) ||
-        Boolean(area.querySelector(
-          '.andes-pagination__button--ellipsis, [class*="pagination"][class*="ellipsis"]'
-        ));
-      if (comReticencias && numeros.length >= 2) {
-        const ultima = Math.max(...numeros);
-        if (ultima > CONFIG.paginaInicial) return ultima;
-      }
-      // O Mercado Livre também pode renderizar o último número como <span>
-      // ou <li> sem <a>/<button>, como "1 2 3 ... 93 Próximo".
-      // Requerer um número terminal APÓS reticências no PAGINADOR, não
-      // assumir que o maior número em uma sequência local seja o total.
+      // Alguns números da paginação são spans/lis, sem link.
+      // Ex.: "1 2 3 4 ... 93 Próximo". Só aceitar o número isolado
+      // DEPOIS da última reticência, jamais o maior link local.
       const rotuloPaginador = texto(area);
-      const marcadores = [...rotuloPaginador.matchAll(/(?:\.{3}|…)\s*(\d+)\b/g)];
-      const ultimoMarcador = marcadores.at(-1);
-      if (ultimoMarcador) {
-        const numero = Number(ultimoMarcador[1]);
-        const depois = rotuloPaginador.slice(
-          ultimoMarcador.index + ultimoMarcador[0].length
+      const posicoes = [...rotuloPaginador.matchAll(/(?:\.{3}|…)/g)];
+      if (posicoes.length) {
+        const ultimaReticencia = posicoes.at(-1);
+        const sufixo = rotuloPaginador.slice(
+          ultimaReticencia.index + ultimaReticencia[0].length
         );
-        if (numeroValido(numero) &&
-            numero > CONFIG.paginaInicial &&
-            !/^\s*(?:\d+|(?:\.{3}|…))/.test(depois)) {
-          return numero;
+        const numerosFinais = [...sufixo.matchAll(/\b([1-9]\d*)\b/g)]
+          .map(x => Number(x[1]))
+          .filter(numeroValido);
+        // Se "Próximo" ainda está ativo, uma sequência numérica local
+        // não é prova do total; somente um número isolado é confiável.
+        if (numerosFinais.length === 1 &&
+            numerosFinais[0] > CONFIG.paginaInicial) {
+          return numerosFinais[0];
+        }
+        if (!possuiProxima && numerosFinais.length > 1) {
+          return numerosFinais.at(-1);
         }
       }
-
-      // Não inferir o total de sequências locais 1..7 nem de "1 de 1".
+      // Reticências sem número final isolado => total desconhecido.
     }
     return null;
   }
