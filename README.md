@@ -18,7 +18,7 @@ Automação em JavaScript para percorrer a lista de cupons do Mercado Livre e te
 - Tenta recuperar falhas de navegação usando a URL direta, **sem repetir cliques em cupons**.
 - Registra **tentativas, ativações confirmadas pela interface, inconclusivas, recusas HTTP, ignorados e falhas**.
 - **Interrompe a execução diante de HTTP 401, 403 ou 429** na ativação, ou diante de mensagens como **“Tivemos um problema”**; não repete requisições recusadas.
-- Interrompe também após duas respostas HTTP de falha consecutivas ou três tentativas inconclusivas consecutivas (configurável), sem supor que cupons foram ativados.
+- Interrompe após duas respostas HTTP de falha consecutivas (configurável), mas **não interrompe por ausência de confirmação visual**. Tentativas sem evidência são contabilizadas como inconclusivas, e não como falhas.
 - Salva localmente a última página concluída e os identificadores dos cupons já tentados na página pendente. Não salva credenciais.
 - Contém proteções para interromper a execução quando não consegue confirmar uma mudança de página ou identificar um controle com segurança.
 
@@ -51,7 +51,6 @@ As opções ficam no objeto `CONFIG` no início do arquivo.
 | `timeoutMudancaPaginaMs` | `16000` | Timeout da mudança de página |
 | `maxTentativasNavegacao` | `2` | Tentativas de acesso direto após falha |
 | `maxFalhasHttpConsecutivas` | `2` | Máximo de erros HTTP consecutivos não fatais antes da interrupção |
-| `maxRespostasInconclusivasConsecutivas` | `3` | Máximo de ativações sem confirmação consecutivas |
 
 O estado é guardado no `localStorage` da própria origem do Mercado Livre sob a chave `ml-coupon-activator:progress:0.3.0`. Caso o navegador bloqueie o armazenamento, a execução poderá continuar, **mas a retomada não será persistida**.
 
@@ -67,7 +66,8 @@ O estado é guardado no `localStorage` da própria origem do Mercado Livre sob a
 
 - Para obter o código HTTP, o script consulta as entradas de desempenho de rede **já coletadas pelo navegador** (`PerformanceResourceTiming.responseStatus`), sem alterar nem repetir as chamadas do Mercado Livre. Quando o navegador não expõe esse dado, usa os avisos visíveis; nenhum dos dois mecanismos garante detectar todos os erros.
 - A mensagem **“Tivemos um problema”** interrompe por segurança, mesmo que não seja possível determinar o status da requisição. **HTTP 403 não confirma, por si só, a causa da recusa.** Não há implementação de contorno de bloqueios.
-- O reconhecimento de ativação depende de um rótulo explícito associado ao botão ou cupom (por exemplo, `Ativado` ou `Resgatado`). Sem esse sinal, o resultado é **inconclusivo**, ainda que a ativação tenha ocorrido.
+- A confirmação visual reconhece mudanças de estado do controle associado ao cupom, incluindo `Ativado`, `Resgatado`, `Conferir` e `Ver cupom`. Um texto de sucesso que já estava presente antes do clique **não** é confirmação. Esses rótulos são indicadores heurísticos e podem mudar conforme o site.
+- Sem um sinal explícito associado ao mesmo cupom, o resultado é **inconclusivo**, ainda que a ativação tenha ocorrido. A execução **continua** nesses casos; ela só interrompe diante de falhas e bloqueios detectados.
 - A página solicitada precisa ser confirmada por elementos confiáveis de paginação; caso contrário, a execução para antes de ativar cupons.
 - O script depende da estrutura HTML do site e do acesso do navegador ao conteúdo do `iframe` na mesma origem.
 - Uma página incompleta que contiver controles sem identificadores únicos pode ter cupons ignorados na retomada para evitar duplicações.
