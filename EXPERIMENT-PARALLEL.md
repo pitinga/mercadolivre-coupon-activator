@@ -10,11 +10,13 @@ Dividir a faixa de páginas do Mercado Livre em blocos independentes e distribui
 
 **Configuração inicial: 10 blocos e 5 trabalhadores simultâneos.**
 
-Cada trabalhador executa as páginas de seu bloco em sequência, mas os trabalhadores carregam/analisam páginas em paralelo. **Todas as ativações de cupons passam por uma fila global de início de clique**, que respeita pelo menos 1,5 segundo entre os inícios. Cada trabalhador verifica o resultado e espera pelo menos 2 segundos após o próprio clique, sem bloquear a fila global durante essa verificação. Isso evita cliques simultâneos, mas permite respostas pendentes de trabalhadores diferentes.
+Cada trabalhador executa as páginas de seu bloco em sequência, mas os trabalhadores carregam/analisam páginas em paralelo. **Todas as ativações de cupons passam por uma fila global de início de clique**, que, com a configuração atual, respeita pelo menos 250 ms entre os inícios. Cada trabalhador verifica o resultado e espera pelo menos 2 segundos após o próprio clique, sem bloquear a fila global durante essa verificação. Isso evita cliques simultâneos, mas permite respostas pendentes de trabalhadores diferentes.
 
 ## Configuração
 
 Altere o objeto `CONFIG` no início do script.
+
+**Parâmetros da branch atual (após personalização):** os intervalos globais estão em 250 ms. A validação aceita inteiros positivos e alerta para valores muito baixos, sem substituí-los. Configurar intervalos agressivos pode levar o Mercado Livre a limitar ou recusar requisições; o script não contorna essas restrições.
 
 | Parâmetro | Valor inicial | Função |
 | --- | ---: | --- |
@@ -22,11 +24,11 @@ Altere o objeto `CONFIG` no início do script.
 | `numeroProcessos` | **5** | Quantidade máxima de iframes/trabalhadores |
 | `paginaInicial` | `1` | Primeira página incluída |
 | `paginaFinal` | `null` | Tenta localizar a última página explicitamente; se não conseguir, solicita um número |
-| `intervaloGlobalCliquesMs` | **1500** | Intervalo mínimo global entre **inícios** de ativações, independente da confirmação do trabalhador anterior |
-| `intervaloGlobalNavegacoesMs` | **2000** | Intervalo mínimo global entre inícios de navegações |
+| `intervaloGlobalCliquesMs` | **250** | Intervalo mínimo global entre **inícios** de ativações, independente da confirmação do trabalhador anterior |
+| `intervaloGlobalNavegacoesMs` | **250** | Intervalo mínimo global entre inícios de navegações |
 | `esperaAposCliqueMs` | **2000** | Tempo mínimo total após o clique antes de o mesmo trabalhador prosseguir; a confirmação conta nesse tempo |
-| `esperaConfirmacaoMs` | `3000` | Janela para observar o resultado individual |
-| `esperaAposPaginaMs` | `1500` | Estabilização do conteúdo antes de processar |
+| `esperaConfirmacaoMs` | **2000** | Janela para observar o resultado individual |
+| `esperaAposPaginaMs` | **2000** | Estabilização do conteúdo antes de processar |
 | `timeoutPaginaMs` | `45000` | Tempo máximo ativo para validar uma página |
 | `intervaloVerificacaoMs` | `250` | Frequência da verificação do DOM |
 | `maxCuponsPorPagina` | `300` | Limite de segurança de controles por página |
@@ -81,7 +83,7 @@ Para reprocessar toda a faixa, encerre o script e execute `limparProgressoCupons
 - Respostas **HTTP 401, 403 ou 429**, se observáveis pelos metadados de rede, e avisos explícitos de erro **interrompem globalmente** a automação.
 - Não há tentativa de contornar autenticação, CAPTCHA, bloqueios ou limites de requisições.
 - "Inconclusivo" significa apenas que não houve evidência suficiente na interface para confirmar a ativação.
-- O agendador **serializa o início dos cliques** (no mínimo 1,5 s de diferença), mas libera a fila global sem aguardar a confirmação do clique anterior. Cada trabalhador aguarda a confirmação por até 3 s e só prossegue após pelo menos 2 s desde seu próprio clique. Assim, pode haver ativações em andamento em iframes diferentes; as recusas detectadas interrompem novas ativações, mas operações já iniciadas podem estar pendentes. **Não pressupor aceleração de 5×**.
+- O agendador **serializa o início dos cliques** (no mínimo 250 ms de diferença com a configuração atual), mas libera a fila global sem aguardar a confirmação do clique anterior. Cada trabalhador aguarda a confirmação por até 2 s e só prossegue após pelo menos 2 s desde seu próprio clique. Assim, pode haver ativações em andamento em iframes diferentes; as recusas detectadas interrompem novas ativações, mas operações já iniciadas podem estar pendentes. **Não pressupor aceleração de 5×**.
 - Cada iframe consome memória e cria atividade de rede. Cinco trabalhadores podem exigir mais recursos que a versão sequencial.
 - A última página não é estimada a partir do maior número visível, porque a paginação pode ocultar páginas intermediárias e finais.
 - A interface do Mercado Livre pode mudar, exigindo ajustes nos seletores.
