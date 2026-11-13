@@ -64,8 +64,8 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
         }
         if (mensagemErro) avisoAtivacao = mensagemErro;
         if (item.confirmar) {
-          button.textContent = 'Ativado';
-          button.innerText = 'Ativado';
+          button.textContent = item.rotuloSucesso || 'Ativado';
+          button.innerText = item.rotuloSucesso || 'Ativado';
         }
       };
       return { card, button };
@@ -279,7 +279,7 @@ test('toast de erro Tivemos um problema interrompe quando status HTTP não está
   assert.equal(run.resumo.falhas, 1);
 });
 
-test('três tentativas sem confirmação interrompem conservadoramente', async () => {
+test('múltiplas tentativas inconclusivas não interrompem a execução', async () => {
   const run = await executar({
     cartoes: [
       {id:'INC-A', confirmar:false},
@@ -288,8 +288,35 @@ test('três tentativas sem confirmação interrompem conservadoramente', async (
       {id:'INC-D', confirmar:false}
     ]
   });
-  assert.equal(run.cliques.length, 3);
-  assert.equal(run.resumo.ativacoesInconclusivas, 3);
-  assert.match(run.resumo.motivo, /sem confirmação/);
-  assert.equal(run.progresso.paginaPendente, 3);
+  assert.equal(run.cliques.length, 4);
+  assert.equal(run.resumo.ativacoesInconclusivas, 4);
+  assert.equal(run.resumo.falhas, 0);
+  assert.equal(run.resumo.paginasConcluidas, 1);
+  assert.equal(run.progresso.ultimaConcluida, 3);
+  assert.equal(run.progresso.paginaPendente, null);
+});
+
+test('Conferir surgindo após o clique confirma somente o cupom associado', async () => {
+  const run = await executar({
+    cartoes: [{id:'CONF-A', confirmar:true, rotuloSucesso:'Conferir'}]
+  });
+  assert.equal(run.resumo.tentativasDeClique, 1);
+  assert.equal(run.resumo.ativacoesConfirmadas, 1);
+  assert.equal(run.resumo.ativacoesInconclusivas, 0);
+});
+
+test('Ver cupom surgindo após o clique confirma somente o cupom associado', async () => {
+  const run = await executar({
+    cartoes: [{id:'CONF-B', confirmar:true, rotuloSucesso:'Ver cupom'}]
+  });
+  assert.equal(run.resumo.ativacoesConfirmadas, 1);
+});
+
+test('estado final sem rótulo de sucesso continua inconclusivo sem falha', async () => {
+  const run = await executar({
+    cartoes: [{id:'SEM-SINAL', confirmar:false, rotuloInicial:'Ativar'}]
+  });
+  assert.equal(run.resumo.ativacoesConfirmadas, 0);
+  assert.equal(run.resumo.ativacoesInconclusivas, 1);
+  assert.equal(run.resumo.falhas, 0);
 });
