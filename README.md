@@ -1,12 +1,12 @@
 # Mercado Livre Coupon Activator
 
-**Desenvolvimento da versão 0.3.0** · Branch `develop/0.3.0`. A versão estável continua sendo a **0.2.0** na `main`.
+**Versão estável: 0.3.0** · Branch principal `main` · [Histórico de versões](./CHANGELOG.md).
 
-Automação em JavaScript para percorrer a lista de cupons do Mercado Livre e tentar ativar os cupons disponíveis em cada página. A versão em desenvolvimento permite abrir diretamente a página escolhida com `&page=X`, confirmar a navegação e retomar execuções interrompidas.
+Automação em JavaScript para percorrer a lista de cupons do Mercado Livre e tentar ativar os cupons disponíveis em cada página. A versão 0.3.0 permite abrir diretamente a página escolhida com `&page=X`, confirmar a navegação e retomar execuções interrompidas.
 
 > **Projeto independente:** não é oficial nem afiliado ao Mercado Livre. O funcionamento depende da interface atual do site. Use por sua conta e responsabilidade e respeite as regras da plataforma.
 
-## Funcionalidades da versão 0.3.0 (em desenvolvimento)
+## Funcionalidades da versão 0.3.0
 
 - Percorre as páginas da listagem de cupons, até o limite configurado.
 - **Abre diretamente a página inicial** pela URL `&page=X`, sem percorrer as anteriores.
@@ -72,7 +72,7 @@ O estado é guardado no `localStorage` da própria origem do Mercado Livre sob a
 - O script depende da estrutura HTML do site e do acesso do navegador ao conteúdo do `iframe` na mesma origem.
 - Uma página incompleta que contiver controles sem identificadores únicos pode ter cupons ignorados na retomada para evitar duplicações.
 - O código é para uso manual no console; não contorna CAPTCHA, restrições de sessão nem bloqueios do Mercado Livre.
-- Os testes automatizados utilizam navegador simulado. **Nenhum teste autenticado de ativação real foi realizado**.
+- Os testes automatizados utilizam navegador simulado. Também foi realizada **validação funcional pelo usuário em sessão autenticada**, com 91 ativações confirmadas pela interface; isso não equivale à verificação independente dos registros no servidor.
 
 ## Validação
 
@@ -85,12 +85,16 @@ node --check mercadolivre-coupon-activator.js
 node --test tests/*.test.cjs
 ```
 
+### Validação funcional — 13/11/2026
+
+Em execução autenticada compartilhada pelo usuário: **67 páginas concluídas**, da página 42 até a **108**, com **91 tentativas e 91 confirmações visuais**, nenhuma recusa, falha ou ativação inconclusiva, em **06:35**. O encerramento ocorreu ao chegar ao fim da paginação. O resultado é evidência do comportamento da interface e dos contadores do script, não uma auditoria independente do servidor.
+
 ## Histórico de versões
 
 | Versão | Código | Principais características |
 | --- | --- | --- |
-| **0.3.0 (desenvolvimento)** | [`mercadolivre-coupon-activator.js`](./mercadolivre-coupon-activator.js) | URL direta, validação de paginação, persistência, confirmação conservadora, recuperação e painel ampliado |
-| **0.2.0 (estável na main)** | [`mercadolivre-coupon-activator.js`](./mercadolivre-coupon-activator.js) | Página inicial configurável, pausa/continuação, validações adicionais de navegação e controles |
+| **0.3.0 (atual)** | [`mercadolivre-coupon-activator.js`](./mercadolivre-coupon-activator.js) | URL direta, validação de paginação, persistência, confirmação conservadora, recuperação e painel ampliado |
+| **0.2.0 (histórica)** | [`mercadolivre-coupon-activator.js`](https://github.com/pitinga/mercadolivre-coupon-activator/blob/0.2.0/mercadolivre-coupon-activator.js) | Página inicial configurável, pausa/continuação, validações adicionais de navegação e controles |
 | **0.1.0 (histórica)** | [`versions/0.1.0/ML-Cupons.js`](./versions/0.1.0/ML-Cupons.js) | Primeira versão deste projeto, proveniente do [Gist original](https://gist.githubusercontent.com/pitinga/26de31fd8c0cfbf4f7a3c1ed917649e5/raw/c9072ee9721a0574d2620e15b03b5b798c491376/ML-Cupons.js) |
 
 A versão 0.1.0 foi preservada **sem alterações de código**. Seu comentário interno menciona `v2.0`, nomenclatura própria do Gist, distinta do versionamento adotado neste repositório.
