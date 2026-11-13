@@ -387,6 +387,50 @@
   // relacionados. Nunca utilizar um texto genérico de <nav> como total.
   // Quando o fim não é demonstrável, solicitar a última página ao usuário.
   function paginaFinalConhecida(doc) {
+    // Estrutura confirmada a partir do HTML real do Mercado Livre:
+    // ul[data-andes-pagination] > li.andes-pagination__dots
+    //   + li > a[data-andes-pagination-item="true"][href*="page="]
+    // As reticências são três elementos <i>, desenhados pelo CSS:
+    // NÃO aparecem em innerText/textContent. Isso explica o falso timeout.
+    for (const lista of doc.querySelectorAll(
+      'ul[data-andes-pagination="true"],ul.andes-pagination'
+    )) {
+      const paginas = [...lista.querySelectorAll(
+        'a[data-andes-pagination-item="true"]'
+      )];
+      const aposReticencias = [...lista.querySelectorAll(
+        'li.andes-pagination__dots + li a[data-andes-pagination-item="true"]'
+      )];
+      const candidato = aposReticencias.at(-1);
+      // Confirmar que o candidato é o ÚLTIMO número navegável,
+      // antes do botão Próximo; não confundir páginas intermediárias.
+      if (!candidato || paginas.at(-1) !== candidato) continue;
+      const rotulo = texto(candidato);
+      if (!/^[1-9]\\d*$/.test(rotulo)) continue;
+      const numero = Number(rotulo);
+      if (!Number.isSafeInteger(numero) ||
+          numero <= CONFIG.paginaInicial ||
+          numero > CONFIG.limiteMaximoPaginas) continue;
+      const destino = candidato.getAttribute?.('href');
+      if (!destino) continue;
+      try {
+        const href = new URL(destino, doc.location.href);
+        const urlAtual = new URL(doc.location.href);
+        const parametro = href.searchParams.get('page');
+        const aria = candidato.getAttribute?.('aria-label') || '';
+        const numeroAria = /p[áa]gina\\s+(\\d+)/i.exec(aria)?.[1];
+        if (href.origin !== urlAtual.origin ||
+            href.pathname !== urlAtual.pathname ||
+            parametro !== rotulo ||
+            (numeroAria && Number(numeroAria) !== numero)) continue;
+      } catch (_) {
+        continue;
+      }
+      console.log('[ML Parallel] Total confirmado pelos links Andes:', numero);
+      return numero;
+    }
+
+    // Fallback para versões do site com outro tipo de paginador.
     // As classes externas variam conforme a versão responsiva do site.
     // Em alguns layouts há somente <ul>/<li> e nenhum ".andes-pagination".
     const raizPaginadores = [
