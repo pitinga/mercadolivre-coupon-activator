@@ -25,7 +25,7 @@ Altere o objeto `CONFIG` no início do script.
 | `colunasPainel` | **5** | Quantidade máxima de colunas na tela (limitada pelos trabalhadores ativos) |
 | `escalaIframe` | **0.7** | Escala visual dos iframes para mostrar mais conteúdo em cada coluna; de 0.4 a 1 |
 | `paginaInicial` | `1` | Primeira página incluída |
-| `paginaFinal` | `null` | Procura uma última página verificável pela paginação; se não conseguir, solicita o número (nunca assume 1 sem evidência) |
+| `paginaFinal` | `null` | Consulta primeiro a paginação da aba aberta em largura normal; se necessário usa sonda temporária de 1440 px e, por último, solicita o número |
 | `intervaloGlobalCliquesMs` | **250** | Intervalo mínimo global entre **inícios** de ativações, independente da confirmação do trabalhador anterior |
 | `intervaloGlobalNavegacoesMs` | **250** | Intervalo mínimo global entre inícios de navegações |
 | `esperaAposCliqueMs` | **2000** | Tempo mínimo total após o clique antes de o mesmo trabalhador prosseguir; a confirmação conta nesse tempo |
@@ -37,6 +37,8 @@ Altere o objeto `CONFIG` no início do script.
 | `limiteMaximoPaginas` | `500` | Limite de faixa para este experimento |
 
 A confirmação de página verifica o indicador selecionado (ou, quando ausente, combina URL e links da paginação) e conteúdo estabilizado. **Páginas com somente botões "Conferir"/"Ver cupom" são válidas**.
+
+**Por que separar a descoberta do layout?** Em cinco colunas, a versão móvel/compacta do paginador pode ocultar o último número. A consulta da aba larga evita que o tamanho dos painéis determine quantos blocos serão processados.
 
 ### Exemplo de divisão
 
@@ -62,7 +64,7 @@ Cinco trabalhadores começam pelos primeiros cinco blocos. Ao terminar, cada tra
 1. Entre na sua conta do Mercado Livre e abra a página de todos os cupons: `https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all`.
 2. Abra o console do navegador (**F12**).
 3. Copie o conteúdo integral de `mercadolivre-coupon-activator-parallel.js` e execute-o no console.
-4. Se a última página não estiver identificável por um link explícito ou número final separado por reticências no componente de paginação, será exibida uma pergunta. Informe o total indicado no Mercado Livre; você também pode definir `paginaFinal` explicitamente no `CONFIG`. **O script não cria um plano de uma página apenas com base em um texto genérico como “1 de 1”.**
+4. O script primeiro examina a paginação da **aba principal em largura normal**, como a que mostra `1 2 3 … 93`. Se não encontrar o total, carrega a primeira página numa **sonda temporária com viewport de 1440 px**, sem usar os iframes estreitos dos trabalhadores. Apenas se ambos os métodos falharem, solicita o número da última página. Você também pode informar `paginaFinal` no `CONFIG`. **Não assume uma página a partir de textos genéricos.**
 5. Acompanhe os cinco painéis. Use **Pausar** ou **Fechar** na barra superior.
 
 Comandos expostos na aba:
