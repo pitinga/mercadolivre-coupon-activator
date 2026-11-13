@@ -1,4 +1,4 @@
-// Mercado Livre - Coupon Activator v0.3.0 (desenvolvimento)
+// Mercado Livre - Coupon Activator v0.3.0
 // Acesso direto via &page=X, painel, retomada e confirmação conservadora.
 //
 // COMO USAR
