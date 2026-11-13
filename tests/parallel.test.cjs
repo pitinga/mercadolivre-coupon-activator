@@ -37,7 +37,8 @@ test('parâmetros iniciais são 10 blocos e 5 processos', () => {
 
 test('intervalos globais conservadores para o experimento', () => {
   const conf = config();
-  assert.equal(conf.intervaloGlobalCliquesMs, 4000);
+  assert.equal(conf.intervaloGlobalCliquesMs, 1500);
+  assert.equal(conf.esperaAposCliqueMs, 2000);
   assert.equal(conf.intervaloGlobalNavegacoesMs, 2000);
   assert.equal(conf.esperaAposPaginaMs, 1500);
   assert.equal(conf.esperaConfirmacaoMs, 3000);
@@ -84,11 +85,11 @@ test('divisão de páginas rejeita faixas inválidas', () => {
   assert.throws(() => dividir(0, 10, 2));
 });
 
-test('fila global serializa cliques e navegações', () => {
+test('fila global espaça os inícios dos cliques e as navegações', () => {
   assert.match(script, /filas:\s*\{\s*clique:\s*Promise\.resolve\(\),\s*navegacao:\s*Promise\.resolve\(\)\s*\}/);
   assert.match(script, /agendar\('clique',\s*CONFIG\.intervaloGlobalCliquesMs/);
   assert.match(script, /agendar\('navegacao',\s*CONFIG\.intervaloGlobalNavegacoesMs/);
-  assert.match(script, /await confirmarClique\(/);
+  assert.match(script, /const clique = await agendar\('clique',[\s\S]+?\n      \}\);[\s\S]*?const resultado = await confirmarClique\(/);
 });
 
 test('persistência é feita antes do clique e por página', () => {
@@ -112,4 +113,42 @@ test('última página não é inferida do maior número visível', () => {
 test('controle não é clicado se desatualizado após a espera global', () => {
   assert.match(script, /const atual = resolverControle\(docAtual, item\)/);
   assert.match(script, /if \(!paginaCorreta\(docAtual, pagina\)\)/);
+});
+
+test('a confirmação ocorre fora da fila global sem bloquear outros trabalhadores', async () => {
+  const schedulerMatch = script.match(/  function agendar\(tipo, intervalo, acao\) \{[\s\S]+?\n  \}\n\n  function el\(/);
+  assert.ok(schedulerMatch, 'agendador não localizado');
+  const schedulerBody = schedulerMatch[0].replace(/\n\n  function el\($/, '');
+  let tempo = 0;
+  const estado = {
+    filas: { clique: Promise.resolve(), navegacao: Promise.resolve() },
+    proximas: { clique: 0, navegacao: 0 },
+    encerrado: false
+  };
+  const agendar = new Function('estado', 'aguardarAtivo', 'ativoMs', 'esperar',
+    schedulerBody + '\nreturn agendar;')(
+    estado,
+    async () => true,
+    () => tempo,
+    async ms => { tempo += ms; return true; }
+  );
+  const instantes = [];
+  const a = agendar('clique', 1500, () => {
+    instantes.push(tempo);
+    return { worker: 1 };
+  });
+  const b = agendar('clique', 1500, () => {
+    instantes.push(tempo);
+    return { worker: 2 };
+  });
+  assert.equal((await a).worker, 1);
+  assert.equal((await b).worker, 2);
+  assert.deepEqual(instantes, [0, 1500]);
+});
+
+test('mínimo pós-clique de 2s considera a espera já gasta na confirmação', () => {
+  assert.match(script, /CONFIG\.esperaAposCliqueMs - \(ativoMs\(\) - clique\.momentoClique\)/);
+  assert.match(script, /restanteAposClique > 0 && !\(await esperar\(restanteAposClique\)\)/);
+  assert.doesNotMatch(script, /CONFIG\.intervaloAposCliqueMs/);
+  assert.match(script, /const resultado = await confirmarClique\([\s\S]+?restanteAposClique/);
 });
