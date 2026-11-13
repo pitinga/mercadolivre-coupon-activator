@@ -25,20 +25,21 @@ Altere o objeto `CONFIG` no início do script.
 | `colunasPainel` | **5** | Quantidade máxima de colunas na tela (limitada pelos trabalhadores ativos) |
 | `escalaIframe` | **0.7** | Escala visual dos iframes para mostrar mais conteúdo em cada coluna; de 0.4 a 1 |
 | `paginaInicial` | `1` | Primeira página incluída |
-| `paginaFinal` | `null` | Consulta primeiro a paginação da aba aberta em largura normal; se necessário usa sonda temporária de 1440 px e, por último, solicita o número |
+| `paginaFinal` | `null` | Detecta a última página na listagem principal, antes de abrir os iframes; solicita o número apenas se o paginador não fornecer dados confiáveis |
 | `intervaloGlobalCliquesMs` | **250** | Intervalo mínimo global entre **inícios** de ativações, independente da confirmação do trabalhador anterior |
 | `intervaloGlobalNavegacoesMs` | **250** | Intervalo mínimo global entre inícios de navegações |
 | `esperaAposCliqueMs` | **2000** | Tempo mínimo total após o clique antes de o mesmo trabalhador prosseguir; a confirmação conta nesse tempo |
 | `esperaConfirmacaoMs` | **2000** | Janela para observar o resultado individual |
 | `esperaAposPaginaMs` | **2000** | Estabilização do conteúdo antes de processar |
 | `timeoutPaginaMs` | `45000` | Tempo máximo ativo para validar uma página |
+| `timeoutDeteccaoPaginasMs` | `15000` | Tempo para localizar e estabilizar o último número na aba principal, antes de abrir os trabalhadores |
 | `intervaloVerificacaoMs` | `250` | Frequência da verificação do DOM |
 | `maxCuponsPorPagina` | `300` | Limite de segurança de controles por página |
 | `limiteMaximoPaginas` | `500` | Limite de faixa para este experimento |
 
 A confirmação de página verifica o indicador selecionado (ou, quando ausente, combina URL e links da paginação) e conteúdo estabilizado. **Páginas com somente botões "Conferir"/"Ver cupom" são válidas**.
 
-**Por que separar a descoberta do layout?** Em cinco colunas, a versão móvel/compacta do paginador pode ocultar o último número. A consulta da aba larga evita que o tamanho dos painéis determine quantos blocos serão processados.
+**Por que separar a descoberta do layout?** Em cinco colunas, a versão móvel/compacta do paginador pode ocultar o último número. Por isso o script mantém **a listagem principal aberta e visível**, rola até o paginador e confirma o total **antes de criar o painel ou qualquer iframe**.
 
 ### Exemplo de divisão
 
@@ -64,8 +65,10 @@ Cinco trabalhadores começam pelos primeiros cinco blocos. Ao terminar, cada tra
 1. Entre na sua conta do Mercado Livre e abra a página de todos os cupons: `https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all`.
 2. Abra o console do navegador (**F12**).
 3. Copie o conteúdo integral de `mercadolivre-coupon-activator-parallel.js` e execute-o no console.
-4. O script primeiro examina a paginação da **aba principal em largura normal**, como a que mostra `1 2 3 … 93`. Se não encontrar o total, carrega a primeira página numa **sonda temporária com viewport de 1440 px**, sem usar os iframes estreitos dos trabalhadores. Apenas se ambos os métodos falharem, solicita o número da última página. Você também pode informar `paginaFinal` no `CONFIG`. **Não assume uma página a partir de textos genéricos.**
+4. O script mantém a **página principal visível, sem painel ou iframes**, rola até a paginação e identifica o último número (por exemplo, `1 2 3 … 93`). Após estabilizar e calcular as faixas, cria o painel de cinco colunas e os cinco trabalhadores. Se a página principal não fornecer um total confiável, solicita `paginaFinal` manualmente; ele também pode ser definido no `CONFIG`.
 5. Acompanhe os cinco painéis. Use **Pausar** ou **Fechar** na barra superior.
+
+**Atenção ao espaço disponível:** o JavaScript não consegue fechar o DevTools ou ampliar fisicamente a janela do navegador. Para que a paginação apareça em toda a largura, maximize a janela e, se necessário, desencaixe o DevTools antes de executar. O script usa a largura disponível na própria aba.
 
 Comandos expostos na aba:
 
