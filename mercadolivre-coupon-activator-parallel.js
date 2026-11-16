@@ -10,7 +10,8 @@
     colunasPainel: 5,
     escalaIframe: 0.7,
     paginaInicial: 1,
-    paginaFinal: null, 
+    paginaFinal: null,
+    retomarProgresso: false, // Padrão: iniciar do zero a cada execução.
     intervaloGlobalCliquesMs: 250,
     intervaloGlobalNavegacoesMs: 250,
     esperaAposCliqueMs: 2000,
@@ -59,6 +60,8 @@
       'timeoutDeteccaoPaginasMs'
     ]) inteiroEntre(nome, 1);
     inteiroEntre('maxCuponsPorPagina', 1);
+    if (typeof config.retomarProgresso !== 'boolean')
+      erros.push('retomarProgresso: esperado booleano');
     return erros;
   }
 
@@ -884,20 +887,29 @@
       encodeURIComponent(origemFiltro) + ':' +
       CONFIG.paginaInicial + '-' + paginaFinal + ':' + estado.blocos.length;
 
+    // O localStorage sobrevive ao fechamento e à nova execução do script.
+    // Por padrão, NÃO recuperar páginas/cupons de execuções anteriores.
     let registroAnterior = null;
-    try { registroAnterior = JSON.parse(localStorage.getItem(estado.chaveRegistro) || 'null'); }
-    catch (_) {}
-    estado.registro = registroAnterior &&
+    if (CONFIG.retomarProgresso) {
+      try { registroAnterior = JSON.parse(localStorage.getItem(estado.chaveRegistro) || 'null'); }
+      catch (_) {}
+    }
+    const retomadaValida = Boolean(registroAnterior &&
       registroAnterior.versao === 'parallel-v2' &&
       registroAnterior.origemFiltro === origemFiltro &&
       registroAnterior.paginaInicial === CONFIG.paginaInicial &&
       registroAnterior.paginaFinal === paginaFinal &&
       registroAnterior.blocos === estado.blocos.length &&
-      registroAnterior.paginas && typeof registroAnterior.paginas === 'object'
+      registroAnterior.paginas && typeof registroAnterior.paginas === 'object');
+    estado.registro = retomadaValida
       ? registroAnterior
       : { versao: 'parallel-v2', origemFiltro,
           paginaInicial: CONFIG.paginaInicial,
           paginaFinal, blocos: estado.blocos.length, paginas: {} };
+    console.log('[ML Parallel] Progresso:',
+      retomadaValida ? 'retomada do registro anterior' :
+        'nova execução: registro e contadores zerados');
+    if (!retomadaValida) salvar();
 
     // Nunca redimensionar a página antes de obter o total.
     const numeroTrabalhadores = Math.min(CONFIG.numeroProcessos, estado.blocos.length);
