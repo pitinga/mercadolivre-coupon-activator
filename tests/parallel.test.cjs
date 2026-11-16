@@ -487,6 +487,61 @@ test('retomada distingue listagens com filtros diferentes', () => {
   assert.match(script, /versao: 'parallel-v2'/);
 });
 
+test('nova execução começa limpa por padrão, mesmo com progresso salvo', () => {
+  assert.equal(config().retomarProgresso, false);
+  const inicio = script.indexOf('    // O localStorage sobrevive');
+  const fim = script.indexOf('    // Nunca redimensionar', inicio);
+  assert.ok(inicio >= 0 && fim > inicio, 'Inicialização do registro não encontrada');
+  const executar = new Function('CONFIG', 'localStorage', 'estado', 'origemFiltro',
+    'paginaFinal', 'salvar', 'console',
+    script.slice(inicio, fim) + '\nreturn { registro: estado.registro, retomadaValida };');
+  const origemFiltro = '/cupons/filter?all=true';
+  const salvo = {
+    versao: 'parallel-v2', origemFiltro, paginaInicial: 1,
+    paginaFinal: 93, blocos: 10,
+    paginas: { '1': { concluida: true, ids: ['cupom-antigo'] } }
+  };
+  const rodar = retomarProgresso => {
+    const CONFIG = { ...config(), retomarProgresso };
+    const estado = { blocos: Array(10), chaveRegistro: 'registro-de-teste', registro: null };
+    let leituras = 0;
+    let gravado = null;
+    const localStorage = {
+      getItem() { leituras++; return JSON.stringify(salvo); }
+    };
+    const resultado = executar(CONFIG, localStorage, estado, origemFiltro, 93,
+      () => { gravado = structuredClone(estado.registro); },
+      { log() {} });
+    return { ...resultado, leituras, gravado };
+  };
+  const novo = rodar(false);
+  assert.equal(novo.retomadaValida, false);
+  assert.equal(novo.leituras, 0);
+  assert.deepEqual(novo.registro.paginas, {});
+  assert.deepEqual(novo.gravado.paginas, {});
+  const retomado = rodar(true);
+  assert.equal(retomado.retomadaValida, true);
+  assert.equal(retomado.leituras, 1);
+  assert.equal(retomado.registro.paginas['1'].concluida, true);
+  assert.equal(retomado.gravado, null);
+});
+
+test('retomada só aceita valor booleano no CONFIG', () => {
+  const validar = extrairValidador();
+  const c = config();
+  c.retomarProgresso = 'false';
+  assert.ok(validar(c).some(x => x.startsWith('retomarProgresso:')));
+  c.retomarProgresso = true;
+  assert.deepEqual(validar(c), []);
+});
+
+test('estado de execução, filas e contador de bloco são recriados a cada início', () => {
+  assert.match(script, /try \{ window\.fecharCuponsParalelo\?\.\(\); \} catch/);
+  assert.match(script, /const estado = \{[\s\S]*?paginasConcluidas: 0, cliques: 0,/);
+  assert.match(script, /filas: \{ clique: Promise\.resolve\(\), navegacao: Promise\.resolve\(\) \}/);
+  assert.match(script, /let proximoBloco = 0;/);
+});
+
 test('diagnóstico da paginação informa URL, largura e candidatos', () => {
   assert.match(script, /Diagnóstico de paginação não reconhecida/);
   assert.match(script, /larguraViewport: window\.innerWidth/);
