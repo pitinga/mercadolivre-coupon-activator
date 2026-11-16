@@ -26,6 +26,7 @@ Altere o objeto `CONFIG` no início do script.
 | `escalaIframe` | **0.7** | Escala visual dos iframes para mostrar mais conteúdo em cada coluna; de 0.4 a 1 |
 | `paginaInicial` | `1` | Primeira página incluída |
 | `paginaFinal` | `null` | Detecta a última página na listagem principal, antes de abrir os iframes; solicita o número apenas se o paginador não fornecer dados confiáveis |
+| `retomarProgresso` | **`false`** | Cada execução começa limpa. Para recuperar páginas e cupons de uma execução interrompida, defina `true` antes de iniciar |
 | `intervaloGlobalCliquesMs` | **250** | Intervalo mínimo global entre **inícios** de ativações, independente da confirmação do trabalhador anterior |
 | `intervaloGlobalNavegacoesMs` | **250** | Intervalo mínimo global entre inícios de navegações |
 | `esperaAposCliqueMs` | **2000** | Tempo mínimo total após o clique antes de o mesmo trabalhador prosseguir; a confirmação conta nesse tempo |
@@ -83,11 +84,13 @@ Comandos expostos na aba:
 
 ## Retomada e cuidados
 
-O progresso é armazenado no `localStorage` do Mercado Livre, **por página**, sob uma chave separada da versão sequencial, que inclui **listagem/filtros, faixa inicial/final e número de blocos**. A chave experimental foi atualizada para `parallel:v2` para não misturar progresso de URLs com filtros distintos. Não armazena cookies, senhas ou tokens.
+O progresso é armazenado no `localStorage` do Mercado Livre, **por página**, sob uma chave separada da versão sequencial, que inclui **listagem/filtros, faixa inicial/final e número de blocos**. A chave experimental `parallel:v2` evita misturar progresso de URLs com filtros distintos. Não armazena cookies, senhas ou tokens.
 
-Ao executar novamente com a **mesma URL/listagem, faixa e número de blocos**, páginas marcadas como concluídas são ignoradas. Dentro de uma página interrompida, os identificadores de cupons já tentados são ignorados para evitar repetições. Se algum controle sem identificação estável já tiver sido tentado em uma execução anterior, os demais sem identificador serão ignorados nessa retomada por precaução.
+**Cada execução começa do zero por padrão (`retomarProgresso: false`).** Contadores, filas, blocos e o registro de páginas/cupons são recriados. Mesmo que exista progresso da mesma URL no `localStorage`, ele é **ignorado e substituído por um registro vazio** antes de iniciar os iframes. Dessa forma, executar o código de novo não pula páginas por causa de uma sessão anterior. O script também fecha o painel/trabalhadores da execução anterior se ainda estiverem abertos.
 
-Para reprocessar toda a faixa, encerre o script e execute `limparProgressoCuponsParalelo()` antes de iniciar novamente.
+Para **continuar uma execução interrompida**, ajuste `retomarProgresso: true` **antes** de executá-lo novamente. Com a mesma URL/listagem, faixa e número de blocos, páginas concluídas e identificadores já tentados serão ignorados. Se algum controle sem identificação estável tiver sido tentado, os demais sem identificador serão ignorados nessa retomada por precaução.
+
+A função `limparProgressoCuponsParalelo()` ainda permite remover manualmente o registro da listagem depois do encerramento, mas **não é necessária para uma nova execução do zero**. Se quiser preservar a possibilidade de retomar, não inicie uma nova execução com `retomarProgresso: false`, pois isso substituirá o registro anterior.
 
 ### Falhas e limites
 
