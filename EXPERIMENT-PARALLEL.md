@@ -1,6 +1,6 @@
 # Experimento — processamento paralelo de cupons
 
-> **Experimental. Não publicado como release.** A versão sequencial estável 0.3.1 e a branch `main` permanecem inalteradas.
+> **Experimental. Não publicado como release estável.** A `main` contém a versão sequencial 0.3.2 e inclui este script em arquivo separado para testes; a release 0.3.2 refere-se somente ao script sequencial.
 
 Arquivo experimental: [`mercadolivre-coupon-activator-parallel.js`](./mercadolivre-coupon-activator-parallel.js)
 
@@ -16,7 +16,7 @@ Cada trabalhador executa as páginas de seu bloco em sequência, mas os trabalha
 
 Altere o objeto `CONFIG` no início do script.
 
-**Parâmetros da branch atual (após personalização):** os intervalos globais estão em 250 ms. A validação aceita inteiros positivos sem emitir aviso apenas por serem intervalos baixos. Valores agressivos ainda podem levar o Mercado Livre a limitar ou recusar requisições; o script não contorna essas restrições.
+**Parâmetros do experimento (após personalização):** os intervalos globais estão em 250 ms. A validação aceita inteiros positivos sem emitir aviso apenas por serem intervalos baixos. Valores agressivos ainda podem levar o Mercado Livre a limitar ou recusar requisições; o script não contorna essas restrições.
 
 | Parâmetro | Valor inicial | Função |
 | --- | ---: | --- |

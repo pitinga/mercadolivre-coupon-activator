@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - experiment/parallel-processing
       - develop/0.3.0
   pull_request:
     branches:

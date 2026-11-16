@@ -1,4 +1,4 @@
-// Mercado Livre - Coupon Activator v0.3.1
+// Mercado Livre - Coupon Activator v0.3.2
 // Acesso direto via &page=X, painel, retomada e confirmação conservadora.
 //
 // COMO USAR
@@ -6,7 +6,7 @@
 // 2. Abra:
 //    https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all
 // 3. Abra F12 > Console, cole todo este script e pressione Enter.
-// 4. Informe a página inicial. Enter sugere a página pendente ou 1.
+// 4. Informe a página inicial (ou configure CONFIG.paginaInicial).
 // 5. Use "Pausar/Continuar" ou ESC para pausar.
 // 6. Use "Fechar" para encerrar e remover o painel.
 //
@@ -19,7 +19,11 @@
 
   const CONFIG = {
     url: 'https://www.mercadolivre.com.br/cupons/filter?all=true&source_page=int_view_all',
+    paginaInicial: null, // null: perguntar; número: iniciar sem diálogo.
+    paginaFinal: null, // null: detectar na aba original antes de criar o iframe.
+    retomarProgresso: false, // Nova execução limpa, salvo se solicitado.
     maxPaginas: 200,
+    limiteMaximoPaginas: 500,
     maxCuponsPorPagina: 300,
     intervaloCliquesMs: 1000,
     esperaAposCuponsMs: 600,
@@ -28,24 +32,78 @@
     timeoutPrimeiraPaginaMs: 25000,
     timeoutMudancaPaginaMs: 16000,
     intervaloVerificacaoMs: 250,
+    timeoutDeteccaoPaginasMs: 15000,
+    esperaEstabilizacaoPaginacaoMs: 1000,
     maxTentativasNavegacao: 2,
     maxFalhasHttpConsecutivas: 2
   };
 
   const origem = new URL(CONFIG.url).origin;
 
-  if (location.origin !== origem) {
+  const urlBase = new URL(location.href);
+  urlBase.searchParams.delete('page');
+  urlBase.hash = '';
+
+  if (urlBase.origin !== origem || !/^\/cupons(?:\/|$)/.test(urlBase.pathname)) {
     console.error(
       `[ML Cupons] Abra ${CONFIG.url} antes de executar o script.`
     );
     return;
   }
 
-  const storageKey = 'ml-coupon-activator:progress:0.3.0';
+  function validarConfig(config) {
+    const erros = [];
+    const inteiro = (nome, minimo, maximo = Number.MAX_SAFE_INTEGER) => {
+      const v = config[nome];
+      if (!Number.isSafeInteger(v) || v < minimo || v > maximo)
+        erros.push(`${nome}: esperado inteiro entre ${minimo} e ${maximo}`);
+    };
+    inteiro('maxPaginas', 1);
+    inteiro('limiteMaximoPaginas', 1);
+    if (config.maxPaginas > config.limiteMaximoPaginas)
+      erros.push('maxPaginas: maior que limiteMaximoPaginas');
+    inteiro('maxCuponsPorPagina', 1);
+    inteiro('intervaloCliquesMs', 1);
+    inteiro('esperaAposCuponsMs', 1);
+    inteiro('esperaAposPaginaMs', 1);
+    inteiro('esperaConfirmacaoMs', 1);
+    inteiro('timeoutPrimeiraPaginaMs', 1);
+    inteiro('timeoutMudancaPaginaMs', 1);
+    inteiro('timeoutDeteccaoPaginasMs', 1);
+    inteiro('esperaEstabilizacaoPaginacaoMs', 1);
+    inteiro('intervaloVerificacaoMs', 1);
+    inteiro('maxTentativasNavegacao', 1);
+    inteiro('maxFalhasHttpConsecutivas', 1);
+    if (config.paginaInicial !== null)
+      inteiro('paginaInicial', 1, config.maxPaginas);
+    if (config.paginaFinal !== null)
+      inteiro('paginaFinal', 1, config.limiteMaximoPaginas);
+    if (typeof config.retomarProgresso !== 'boolean')
+      erros.push('retomarProgresso: esperado booleano');
+    if (config.paginaInicial !== null && config.paginaFinal !== null &&
+        config.paginaFinal < config.paginaInicial)
+      erros.push('paginaFinal: menor que paginaInicial');
+    return erros;
+  }
+
+  const errosConfig = validarConfig(CONFIG);
+  if (errosConfig.length) {
+    console.error('[ML Cupons] Parâmetros inválidos:', errosConfig);
+    return;
+  }
+
+  // O progresso da versão anterior não tem informação sobre filtros; por
+  // segurança, usar uma chave nova, específica da listagem aberta.
+  const filtroAtual = new URL(urlBase.href);
+  filtroAtual.searchParams.sort();
+  const origemFiltro = filtroAtual.pathname + filtroAtual.search;
+  const storageKey = 'ml-coupon-activator:progress:0.3.2:' +
+    encodeURIComponent(origemFiltro);
 
   function novoRegistro(pagina = 1) {
     return {
-      versao: '0.3.0',
+      versao: '0.3.2',
+      origemFiltro,
       ultimaConcluida: pagina - 1,
       paginaPendente: null,
       idsTentados: [],
@@ -58,7 +116,8 @@
   function lerRegistro() {
     try {
       const valor = JSON.parse(localStorage.getItem(storageKey) || 'null');
-      if (!valor || valor.versao !== '0.3.0' ||
+      if (!valor || valor.versao !== '0.3.2' ||
+          valor.origemFiltro !== origemFiltro ||
           !Number.isSafeInteger(valor.ultimaConcluida) ||
           valor.ultimaConcluida < 0 ||
           ![null, undefined].includes(valor.paginaPendente) &&
@@ -76,22 +135,23 @@
     }
   }
 
-  const anterior = lerRegistro();
+  const anterior = CONFIG.retomarProgresso ? lerRegistro() : null;
   const paginaSugerida = anterior && !anterior.terminou
     ? anterior.paginaPendente || Math.min(CONFIG.maxPaginas, anterior.ultimaConcluida + 1)
     : 1;
 
-  const entrada = prompt(
-    'Começar em qual página?\n\n' +
-    'A página será aberta diretamente usando &page=X.\n' +
-    'A sugestão pode ser a página pendente da última execução.\n' +
-    'Informe 1 para reiniciar desde o começo.',
-    String(paginaSugerida)
-  );
-
-  if (entrada === null) return;
-
-  const paginaInicial = Number(entrada.trim() || '1');
+  let paginaInicial = CONFIG.paginaInicial;
+  if (paginaInicial === null) {
+    const entrada = prompt(
+      'Começar em qual página?\n\n' +
+      'A página será aberta diretamente usando &page=X.\n' +
+      'A retomada só acontece com CONFIG.retomarProgresso = true.\n' +
+      'Informe 1 para reiniciar desde o começo.',
+      String(paginaSugerida)
+    );
+    if (entrada === null) return;
+    paginaInicial = Number(entrada.trim() || '1');
+  }
 
   if (
     !Number.isSafeInteger(paginaInicial) ||
@@ -105,7 +165,7 @@
   }
 
   const retomarPagina = Boolean(
-    anterior && !anterior.terminou &&
+    CONFIG.retomarProgresso && anterior && !anterior.terminou &&
     anterior.paginaPendente === paginaInicial &&
     paginaInicial > anterior.ultimaConcluida
   );
@@ -164,6 +224,7 @@
     pausaInicio: null,
     pausaAcumuladaMs: 0,
     paginaAtual: paginaInicial,
+    ultimaPaginaConhecida: null,
     paginasIniciadas: 0,
     paginasConcluidas: 0,
     cliques: 0,
@@ -179,6 +240,10 @@
       ? 'Retomada: cupons já tentados não serão acionados novamente.'
       : 'Iniciando...'
   };
+
+  // Persistir o início limpo após confirmar a página inicial. Registros
+  // anteriores de outras listagens nunca são alterados.
+  if (!retomarPagina) salvarProgresso();
 
   const dormir = ms =>
     new Promise(resolve => setTimeout(resolve, ms));
@@ -305,8 +370,14 @@
     const segundos = Math.floor(tempoAtivo() / 1000);
     const duracao = `${String(Math.floor(segundos / 60)).padStart(2, '0')}:` +
       String(segundos % 60).padStart(2, '0');
+    const totalFaixa = estado.ultimaPaginaConhecida === null ? null :
+      Math.min(CONFIG.maxPaginas, estado.ultimaPaginaConhecida - paginaInicial + 1);
+    const paginasTexto = totalFaixa === null
+      ? `${estado.paginasConcluidas} pág.`
+      : `${estado.paginasConcluidas}/${totalFaixa} pág. ` +
+        `(${Math.round(100 * estado.paginasConcluidas / totalFaixa)}%)`;
     estatisticas.textContent =
-      `${estado.paginasConcluidas} pág. | ${estado.cliques} tent. | ` +
+      `${paginasTexto} | ${estado.cliques} tent. | ` +
       `${estado.confirmados} confirm. | ${estado.inconclusivos} inconcl. | ` +
       `${estado.recusados} recus. | ${estado.ignorados} ignor. | ` +
       `${estado.falhas} falhas | HTTP ${estado.ultimoHttp ?? '—'} | ${duracao}`;
@@ -575,9 +646,224 @@
   }
 
   function urlPagina(pagina) {
-    const url = new URL(CONFIG.url);
+    // Preserve exactly the list/filter opened in the original tab.
+    const url = new URL(urlBase.href);
     if (pagina > 1) url.searchParams.set('page', String(pagina));
     return url.href;
+  }
+
+  function paginaFinalConhecida(doc) {
+    // Estrutura confirmada a partir do HTML real do Mercado Livre:
+    // ul[data-andes-pagination] > li.andes-pagination__dots
+    //   + li > a[data-andes-pagination-item="true"][href*="page="]
+    // As reticências são três elementos <i>, desenhados pelo CSS:
+    // NÃO aparecem em innerText/textContent. Isso explica o falso timeout.
+    for (const lista of doc.querySelectorAll(
+      'ul[data-andes-pagination="true"],ul.andes-pagination'
+    )) {
+      const paginas = [...lista.querySelectorAll(
+        'a[data-andes-pagination-item="true"]'
+      )];
+      const aposReticencias = [...lista.querySelectorAll(
+        'li.andes-pagination__dots + li a[data-andes-pagination-item="true"]'
+      )];
+      const candidato = aposReticencias.at(-1);
+      // Confirmar que o candidato é o ÚLTIMO número navegável,
+      // antes do botão Próximo; não confundir páginas intermediárias.
+      if (!candidato || paginas.at(-1) !== candidato) continue;
+      const rotulo = texto(candidato);
+      if (!/^[1-9]\d*$/.test(rotulo)) continue;
+      const numero = Number(rotulo);
+      if (!Number.isSafeInteger(numero) ||
+          numero < paginaInicial ||
+          numero > CONFIG.limiteMaximoPaginas) continue;
+      const destino = candidato.getAttribute?.('href');
+      if (!destino) continue;
+      try {
+        const href = new URL(destino, doc.location.href);
+        const urlAtual = new URL(doc.location.href);
+        const parametro = href.searchParams.get('page');
+        const aria = candidato.getAttribute?.('aria-label') || '';
+        const numeroAria = /p[áa]gina\s+(\d+)/i.exec(aria)?.[1];
+        if (href.origin !== urlAtual.origin ||
+            href.pathname !== urlAtual.pathname ||
+            parametro !== rotulo ||
+            (numeroAria && Number(numeroAria) !== numero)) continue;
+      } catch (_) {
+        continue;
+      }
+      console.log('[ML Cupons] Total confirmado pelos links Andes:', numero);
+      return numero;
+    }
+
+    // Fallback para versões do site com outro tipo de paginador.
+    // As classes externas variam conforme a versão responsiva do site.
+    // Em alguns layouts há somente <ul>/<li> e nenhum ".andes-pagination".
+    const raizPaginadores = [
+      '.andes-pagination', '[class*="pagination"]',
+      '[data-testid*="pagination"]', 'nav',
+      '[role="navigation"]', 'ul', 'ol'
+    ].join(',');
+    const areas = new Set();
+    for (const area of doc.querySelectorAll(raizPaginadores)) {
+      const rotulo = texto(area);
+      if (rotulo.length > 280 || !/\d/.test(rotulo)) continue;
+      if (/(?:\.{3}|…)/.test(rotulo) &&
+          /\bpr[oó]xim[oa]\b/i.test(rotulo)) {
+        areas.add(area);
+      } else if (area.querySelector(
+        'a[rel="last"],[aria-label*="ltima"],' +
+        '.andes-pagination__button--last a'
+      )) {
+        areas.add(area);
+      }
+    }
+
+    // Outra variação não usa nomes de classe relacionados a paginação.
+    // Localizar o controle "Próximo" e subir até o ancestral contendo
+    // número de página + reticências + controle de avanço.
+    const controles = doc.querySelectorAll(
+      'a,button,[role="button"],span,li'
+    );
+    for (const controle of controles) {
+      const rotulo = texto(controle);
+      if (!/^pr[oó]xim[oa](?:\s*[›»>→])?$/i.test(rotulo)) continue;
+      let ancestral = controle.parentElement;
+      for (let profundidade = 0; ancestral && profundidade < 6;
+           profundidade++, ancestral = ancestral.parentElement) {
+        const valor = texto(ancestral);
+        if (valor.length > 280) break;
+        if (/(?:\.{3}|…)/.test(valor) && /\d/.test(valor) &&
+            /\bpr[oó]xim[oa]\b/i.test(valor)) {
+          areas.add(ancestral);
+        }
+      }
+    }
+    function numeroValido(numero) {
+      return Number.isSafeInteger(numero) &&
+        numero >= paginaInicial && numero <= CONFIG.limiteMaximoPaginas;
+    }
+    function numeroLink(elemento) {
+      if (!elemento) return null;
+      const href = elemento.getAttribute?.('href');
+      if (href) {
+        try {
+          const valor = new URL(href, doc.location.href).searchParams.get('page');
+          if (valor !== null && /^[1-9]\d*$/.test(valor)) return Number(valor);
+        } catch (_) {}
+      }
+      const rotulo = texto(elemento);
+      return /^\d+$/.test(rotulo) ? Number(rotulo) : null;
+    }
+    function proximaHabilitada(area) {
+      const botao = area.querySelector(
+        'li.andes-pagination__button--next a, ' +
+        'li.andes-pagination__button--next button, ' +
+        '.andes-pagination__button--next a, a[rel="next"], ' +
+        '[data-testid="pagination-next"]'
+      );
+      if (!botao) return false;
+      const desabilitado = botao.getAttribute?.('aria-disabled') === 'true' ||
+        botao.hasAttribute?.('disabled') ||
+        botao.closest?.(
+          '[disabled],[aria-disabled="true"],' +
+          '.andes-pagination__button--disabled'
+        );
+      return !desabilitado;
+    }
+    for (const area of areas) {
+      const possuiProxima = proximaHabilitada(area);
+      const fimExplicito = area.querySelector(
+        'a[rel="last"], [aria-label*="ltima página"], ' +
+        '[title*="ltima página"], ' +
+        '.andes-pagination__button--last a, ' +
+        '.andes-pagination__button--last button'
+      );
+      const numeroExplicito = numeroLink(fimExplicito);
+      if (numeroValido(numeroExplicito) &&
+          (numeroExplicito > paginaInicial || !possuiProxima)) {
+        return numeroExplicito;
+      }
+
+      // Alguns números da paginação são spans/lis, sem link.
+      // Ex.: "1 2 3 4 ... 93 Próximo". Só aceitar o número isolado
+      // DEPOIS da última reticência, jamais o maior link local.
+      const rotuloPaginador = texto(area);
+      const posicoes = [...rotuloPaginador.matchAll(/(?:\.{3}|…)/g)];
+      if (posicoes.length) {
+        const ultimaReticencia = posicoes.at(-1);
+        const sufixo = rotuloPaginador.slice(
+          ultimaReticencia.index + ultimaReticencia[0].length
+        );
+        const numerosFinais = [...sufixo.matchAll(/\b([1-9]\d*)\b/g)]
+          .map(x => Number(x[1]))
+          .filter(numeroValido);
+        // Se "Próximo" ainda está ativo, uma sequência numérica local
+        // não é prova do total; somente um número isolado é confiável.
+        if (numerosFinais.length === 1 &&
+            numerosFinais[0] > paginaInicial) {
+          return numerosFinais[0];
+        }
+        if (!possuiProxima && numerosFinais.length > 1) {
+          return numerosFinais.at(-1);
+        }
+      }
+      // Reticências sem número final isolado => total desconhecido.
+    }
+    return null;
+  }
+
+  // Obter a última página na aba ORIGINAL, em largura total. O iframe só é
+  // criado posteriormente, para não acionar o layout compacto da paginação.
+  async function descobrirPaginaFinal() {
+    if (CONFIG.paginaFinal !== null) return CONFIG.paginaFinal;
+    if (typeof document.querySelector !== 'function' ||
+        typeof document.querySelectorAll !== 'function') return null;
+
+    const anterior = { x: window.scrollX || 0, y: window.scrollY || 0 };
+    const inicio = tempoAtivo();
+    let observada = null;
+    let desde = null;
+    try {
+      window.scrollTo?.(0, Math.max(
+        document.documentElement?.scrollHeight || 0,
+        document.body?.scrollHeight || 0
+      ));
+      while (!estado.encerrado &&
+             tempoAtivo() - inicio < CONFIG.timeoutDeteccaoPaginasMs) {
+        if (!(await esperar(CONFIG.intervaloVerificacaoMs))) return null;
+        if (document.readyState === 'loading') continue;
+        const pagina = paginaFinalConhecida(document);
+        if (pagina === null) {
+          observada = null;
+          desde = null;
+          continue;
+        }
+        if (pagina !== observada) {
+          observada = pagina;
+          desde = tempoAtivo();
+          continue;
+        }
+        if (tempoAtivo() - desde >= CONFIG.esperaEstabilizacaoPaginacaoMs) {
+          console.log('[ML Cupons] Última página confirmada na aba principal:', pagina);
+          return pagina;
+        }
+      }
+    } finally {
+      window.scrollTo?.(anterior.x, anterior.y);
+    }
+    const candidatos = [...document.querySelectorAll(
+      '[class*="pagination"],nav,ul,ol,[role="navigation"]'
+    )].map(el => ({
+      elemento: el.tagName?.toLowerCase(),
+      classe: typeof el.className === 'string' ? el.className.slice(0, 90) : '',
+      rotulo: texto(el).slice(0, 150)
+    })).filter(x => /pr[oó]xim[oa]/i.test(x.rotulo) && /\d/.test(x.rotulo))
+      .slice(0, 6);
+    console.warn('[ML Cupons] Última página não identificada na aba principal:', {
+      url: location.href, larguraViewport: window.innerWidth, candidatos
+    });
+    return null; // A versão sequencial conserva o fallback pelo botão Próxima.
   }
 
   function paginaDaUrl(doc) {
@@ -817,6 +1103,7 @@
     const doc = documento();
 
     const seletores = [
+      'a[data-andes-pagination-control="next"]',
       'li.andes-pagination__button--next a',
       'li.andes-pagination__button--next button',
       '.andes-pagination__button--next a',
@@ -1182,6 +1469,16 @@
   }
 
   try {
+    // Identificar o total na aba em largura total, ANTES de criar o iframe.
+    estado.ultimaPaginaConhecida = await descobrirPaginaFinal();
+    if (estado.encerrado) return;
+    if (estado.ultimaPaginaConhecida !== null &&
+        estado.ultimaPaginaConhecida < paginaInicial) {
+      throw new Error(
+        `A página inicial ${paginaInicial} é maior que a última página ` +
+        `${estado.ultimaPaginaConhecida} dessa listagem.`
+      );
+    }
     if (!(await carregarPrimeiraPagina())) return;
 
     // A página solicitada foi acessada diretamente via &page=X.
@@ -1217,7 +1514,21 @@
 
       if (!(await aguardarExecucao())) return;
 
+      if (estado.ultimaPaginaConhecida !== null &&
+          estado.paginaAtual >= estado.ultimaPaginaConhecida) {
+        estado.motivo = 'Última página confirmada da listagem alcançada.';
+        progresso.terminou = true;
+        salvarProgresso();
+        break;
+      }
+
       if (!encontrarProxima()) {
+        if (estado.ultimaPaginaConhecida !== null) {
+          throw new Error(
+            `Botão Próxima indisponível na página ${estado.paginaAtual}, ` +
+            `antes da última página ${estado.ultimaPaginaConhecida}.`
+          );
+        }
         estado.motivo =
           'Sem botão Próxima habilitado; fim da paginação detectada.';
         progresso.terminou = true;
@@ -1262,6 +1573,8 @@
 
     console.log('[ML Cupons] RESUMO:', {
       paginaInicialSolicitada: paginaInicial,
+      ultimaPaginaDetectada: estado.ultimaPaginaConhecida,
+      origemFiltro,
       ultimaPagina: estado.paginaAtual,
       paginasIniciadas: estado.paginasIniciadas,
       paginasConcluidas: estado.paginasConcluidas,

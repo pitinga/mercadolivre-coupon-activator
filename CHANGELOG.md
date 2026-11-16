@@ -4,6 +4,28 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 
 O versionamento deste repositório começa em `0.1.0`, independentemente da numeração de versão presente nos comentários internos do Gist original.
 
+## [0.3.2] - 2026-11-16
+
+### Adicionado
+
+- Detecção da última página na aba principal, com largura total, **antes da criação do iframe**. O detector reconhece a paginação Andes real, incluindo `li.andes-pagination__dots` com elementos `<i>` sem reticências textuais, e valida número, `href` e `aria-label`.
+- Progresso percentual e encerramento pela última página confirmada. Caso não seja possível confirmar o total, a versão sequencial mantém o percurso pelo botão **Próxima**, com limite de segurança e diagnóstico.
+- Parâmetros `paginaInicial`, `paginaFinal`, `retomarProgresso`, `limiteMaximoPaginas`, `timeoutDeteccaoPaginasMs` e `esperaEstabilizacaoPaginacaoMs`, além de validação inicial dos valores.
+- O script paralelo experimental, seus testes e documentação ficam disponíveis separadamente no repositório, **sem fazer parte da release estável sequencial**.
+
+### Corrigido
+
+- A navegação direta agora preserva a URL e os filtros da aba original (`status`, `source_page`, `all` etc.) ao montar cada `&page=X`, em vez de carregar sempre a URL fixa do `CONFIG`.
+- O progresso é isolado por listagem/filtros e não pode ser retomado por engano em outra URL. A chave nova usa `ml-coupon-activator:progress:0.3.2:<filtro>`.
+- Uma execução nova inicia com progresso limpo por padrão (`retomarProgresso: false`). A retomada é opcional e exige `true`; o diálogo da página inicial permanece disponível quando `paginaInicial: null`.
+- Se a paginação confirmar uma última página maior que a atual, a ausência prematura do botão **Próxima** vira erro, não conclusão silenciosa.
+
+### Compatibilidade e validação
+
+- A chave antiga de progresso da 0.3.0/0.3.1 não é apagada, mas **não é migrada automaticamente**, pois não distinguia filtros e poderia causar retomada incorreta.
+- Testes com navegação filtrada, separação de armazenamento, retomada explícita e modelos reduzidos do paginador real de 111 e 93 páginas; preservados os testes de confirmação de cupons e erros HTTP.
+- **Ainda não houve execução de ponta a ponta autenticada da versão 0.3.2.** A cobertura automatizada não substitui essa validação.
+
 ## [0.3.1] - 2026-11-13
 
 ### Corrigido

@@ -10,9 +10,12 @@ const script = fs.readFileSync(
   path.join(__dirname, '..', 'mercadolivre-coupon-activator.js'), 'utf8'
 );
 
+const origemFiltro = '/cupons/filter?all=true&source_page=int_view_all';
+
 async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRenderizada = null, httpStatus = null, mensagemErro = null, cartoesSemSeletor = false, sempreCarregando = false }) {
   const storage = new Map();
-  const storageKey = 'ml-coupon-activator:progress:0.3.0';
+  const storageKey = 'ml-coupon-activator:progress:0.3.2:' +
+    encodeURIComponent(origemFiltro);
   if (salvo) storage.set(storageKey, JSON.stringify(salvo));
   let clock = 0;
   let documentoAtual;
@@ -136,7 +139,10 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
   };
 
   const contexto = {
-    window, document, location: { origin: 'https://www.mercadolivre.com.br' },
+    window, document, location: {
+      origin: 'https://www.mercadolivre.com.br',
+      href: 'https://www.mercadolivre.com.br' + origemFiltro
+    },
     localStorage: {
       getItem(k) { return storage.get(k) ?? null; },
       setItem(k,v) { storage.set(k,v); },
@@ -156,7 +162,9 @@ async function executar({ pagina = '3', cartoes = [], salvo = null, paginaRender
     URL, Date
   };
 
-  await vm.runInNewContext(script, contexto, { timeout: 2000 });
+  const codigo = salvo
+    ? script.replace('retomarProgresso: false', 'retomarProgresso: true') : script;
+  await vm.runInNewContext(codigo, contexto, { timeout: 2000 });
   return {
     resumo, cliques, fontes, avisos,
     progresso: JSON.parse(storage.get(storageKey) || 'null')
@@ -189,7 +197,7 @@ test('retomada ignora cupom de identidade já tentada', async () => {
     pagina: undefined,
     cartoes: [{id:'C', confirmar:true}],
     salvo: {
-      versao: '0.3.0', ultimaConcluida: 2,
+      versao: '0.3.2', origemFiltro, ultimaConcluida: 2,
       paginaPendente: 3, idsTentados: ['data-coupon-id:C'],
       semIdTentado: false, terminou: false
     }
