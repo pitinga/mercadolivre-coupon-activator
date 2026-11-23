@@ -60,14 +60,14 @@ jobs:
               pr=payload.get("pull_request") or {}
               h=pr.get("head") or {}
               origin=(h.get("repo") or {}).get("full_name")
-              if payload.get("action") == "closed" and pr.get("merged") and origin==REPO:
+              if payload.get("action") == "closed" and pr.get("merged") and origin==REPO and (pr.get("base") or {}).get("ref")==DEFAULT:
                 name=h.get("ref","")
                 if name and name not in (DEFAULT,"master"):
                   remove(name,h.get("sha"),"merged PR")
           else:
               branches=pages("branches")
               prs=pages("pulls?state=closed")
-              merged={(x.get("head") or {}).get("ref"):(x.get("head") or {}).get("sha") for x in prs if x.get("merged_at") and (x.get("head") or {}).get("repo",{}).get("full_name")==REPO}
+              merged={(x.get("head") or {}).get("ref"):(x.get("head") or {}).get("sha") for x in prs if x.get("merged_at") and ((x.get("head") or {}).get("repo") or {}).get("full_name")==REPO and (x.get("base") or {}).get("ref")==DEFAULT}
               for b in branches:
                 name=b["name"]; sha=b["commit"]["sha"]
                 if name in (DEFAULT,"master") or b.get("protected"): continue
