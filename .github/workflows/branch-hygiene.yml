@@ -18,66 +18,66 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 - <<'PY'
-            import json, os, urllib.parse, urllib.request, urllib.error
-            REPO = os.environ["GITHUB_REPOSITORY"]
-            TOKEN = os.environ["GH_TOKEN"]
-            EVENT = os.environ["GITHUB_EVENT_NAME"]
-            DEFAULT = "main"
-            BASE = "https://api.github.com"
-            def api(method, path):
-                req=urllib.request.Request(BASE+path,method=method,headers={
-                  "Authorization":"Bearer "+TOKEN,
-                  "Accept":"application/vnd.github+json",
-                  "X-GitHub-Api-Version":"2022-11-28",
-                  "User-Agent":"safe-branch-hygiene"})
-                try:
-                  with urllib.request.urlopen(req, timeout=25) as response:
-                    body=response.read()
-                    return json.loads(body) if body else {}
-                except urllib.error.HTTPError as e:
-                  if e.code == 404: return None
-                  print("HTTP",e.code,method,path,"response:",e.read().decode()[:150])
-                  raise
-            def pages(endpoint):
-                out=[]
-                for n in range(1,20):
-                  part=api("GET",f"/repos/{REPO}/{endpoint}{'&' if '?' in endpoint else '?'}per_page=100&page={n}")
-                  if not part: break
-                  out.extend(part)
-                  if len(part)<100: break
-                return out
-            def current_branch(name):
-                return api("GET",f"/repos/{REPO}/branches/{urllib.parse.quote(name,safe='/')}")
-            def remove(name,sha,reason):
-                info=current_branch(name)
-                if not info or info.get("protected") or info.get("commit",{}).get("sha")!=sha:
-                  print("SKIP changed/protected/missing:",name)
-                  return
-                api("DELETE",f"/repos/{REPO}/git/refs/heads/{urllib.parse.quote(name,safe='/')}")
-                print("DELETED:",name,"reason:",reason)
-            if EVENT == "pull_request":
-                payload=json.load(open(os.environ["GITHUB_EVENT_PATH"],encoding="utf-8"))
-                pr=payload.get("pull_request") or {}
-                h=pr.get("head") or {}
-                origin=(h.get("repo") or {}).get("full_name")
-                if payload.get("action") == "closed" and pr.get("merged") and origin==REPO:
-                  name=h.get("ref","")
-                  if name and name not in (DEFAULT,"master"):
-                    remove(name,h.get("sha"),"merged PR")
-            else:
-                branches=pages("branches")
-                prs=pages("pulls?state=closed")
-                merged={(x.get("head") or {}).get("ref"):(x.get("head") or {}).get("sha") for x in prs if x.get("merged_at") and (x.get("head") or {}).get("repo",{}).get("full_name")==REPO}
-                for b in branches:
-                  name=b["name"]; sha=b["commit"]["sha"]
-                  if name in (DEFAULT,"master") or b.get("protected"): continue
-                  if merged.get(name)==sha:
-                    remove(name,sha,"merged PR verified by head SHA")
-                    continue
-                  comparison=api("GET",f"/repos/{REPO}/compare/{DEFAULT}...{urllib.parse.quote(name,safe='/')}")
-                  if comparison and comparison.get("ahead_by")==0:
-                    remove(name,sha,"no unique commits ahead of main")
-                  else:
-                    print("KEEP unresolved/active:",name)
-            
+          import json, os, urllib.parse, urllib.request, urllib.error
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          TOKEN = os.environ["GH_TOKEN"]
+          EVENT = os.environ["GITHUB_EVENT_NAME"]
+          DEFAULT = "main"
+          BASE = "https://api.github.com"
+          def api(method, path):
+              req=urllib.request.Request(BASE+path,method=method,headers={
+                "Authorization":"Bearer "+TOKEN,
+                "Accept":"application/vnd.github+json",
+                "X-GitHub-Api-Version":"2022-11-28",
+                "User-Agent":"safe-branch-hygiene"})
+              try:
+                with urllib.request.urlopen(req, timeout=25) as response:
+                  body=response.read()
+                  return json.loads(body) if body else {}
+              except urllib.error.HTTPError as e:
+                if e.code == 404: return None
+                print("HTTP",e.code,method,path,"response:",e.read().decode()[:150])
+                raise
+          def pages(endpoint):
+              out=[]
+              for n in range(1,20):
+                part=api("GET",f"/repos/{REPO}/{endpoint}{'&' if '?' in endpoint else '?'}per_page=100&page={n}")
+                if not part: break
+                out.extend(part)
+                if len(part)<100: break
+              return out
+          def current_branch(name):
+              return api("GET",f"/repos/{REPO}/branches/{urllib.parse.quote(name,safe='/')}")
+          def remove(name,sha,reason):
+              info=current_branch(name)
+              if not info or info.get("protected") or info.get("commit",{}).get("sha")!=sha:
+                print("SKIP changed/protected/missing:",name)
+                return
+              api("DELETE",f"/repos/{REPO}/git/refs/heads/{urllib.parse.quote(name,safe='/')}")
+              print("DELETED:",name,"reason:",reason)
+          if EVENT == "pull_request":
+              payload=json.load(open(os.environ["GITHUB_EVENT_PATH"],encoding="utf-8"))
+              pr=payload.get("pull_request") or {}
+              h=pr.get("head") or {}
+              origin=(h.get("repo") or {}).get("full_name")
+              if payload.get("action") == "closed" and pr.get("merged") and origin==REPO:
+                name=h.get("ref","")
+                if name and name not in (DEFAULT,"master"):
+                  remove(name,h.get("sha"),"merged PR")
+          else:
+              branches=pages("branches")
+              prs=pages("pulls?state=closed")
+              merged={(x.get("head") or {}).get("ref"):(x.get("head") or {}).get("sha") for x in prs if x.get("merged_at") and (x.get("head") or {}).get("repo",{}).get("full_name")==REPO}
+              for b in branches:
+                name=b["name"]; sha=b["commit"]["sha"]
+                if name in (DEFAULT,"master") or b.get("protected"): continue
+                if merged.get(name)==sha:
+                  remove(name,sha,"merged PR verified by head SHA")
+                  continue
+                comparison=api("GET",f"/repos/{REPO}/compare/{DEFAULT}...{urllib.parse.quote(name,safe='/')}")
+                if comparison and comparison.get("ahead_by")==0:
+                  remove(name,sha,"no unique commits ahead of main")
+                else:
+                  print("KEEP unresolved/active:",name)
+          
           PY
